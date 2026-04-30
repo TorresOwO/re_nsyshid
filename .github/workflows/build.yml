@@ -13,12 +13,12 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
     - name: Build the Docker image
       run: |
         docker build -t re_nsyshid_builder .
         docker run --rm -v ${PWD}:/project re_nsyshid_builder make dist
-    - uses: actions/upload-artifact@v4
+    - uses: actions/upload-artifact@v7
       with:
         name: re_nsyshid
         path: dist/*
