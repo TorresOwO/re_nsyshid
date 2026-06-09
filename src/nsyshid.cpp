@@ -162,7 +162,7 @@ DECL_FUNCTION(int32_t, HIDAddClient, HIDClient *client, HIDAttachCallback attach
             if (devicePtr == nullptr) {
                 return 0;
             }
-            devicePtr->handle = GenerateHIDHandle();
+            devicePtr->handle    = GenerateHIDHandle();
             auto skylanderDevice = std::make_shared<SkylanderUSBDevice>();
             skylanderDevice->AssignHID(devicePtr);
             std::lock_guard lock(deviceMutex);
@@ -176,7 +176,7 @@ DECL_FUNCTION(int32_t, HIDAddClient, HIDClient *client, HIDAttachCallback attach
             if (devicePtr == nullptr) {
                 return 0;
             }
-            devicePtr->handle = GenerateHIDHandle();
+            devicePtr->handle   = GenerateHIDHandle();
             auto infinityDevice = std::make_shared<InfinityUSBDevice>();
             infinityDevice->AssignHID(devicePtr);
             std::lock_guard lock(deviceMutex);
@@ -190,7 +190,7 @@ DECL_FUNCTION(int32_t, HIDAddClient, HIDClient *client, HIDAttachCallback attach
             if (devicePtr == nullptr) {
                 return 0;
             }
-            devicePtr->handle = GenerateHIDHandle();
+            devicePtr->handle     = GenerateHIDHandle();
             auto dimensionsDevice = std::make_shared<DimensionsUSBDevice>();
             dimensionsDevice->AssignHID(devicePtr);
             std::lock_guard lock(deviceMutex);
