@@ -849,11 +849,7 @@ void SkylanderPortal::ControlTransfer(uint8_t *buf, uint32_t length) {
             break;
         }
         case 'L': {
-            uint8_t side = buf[1];
-            if (side == 0x02) {
-                side = 0x04;
-            }
-            g_skyportal.SetLeds(side, buf[2], buf[3], buf[4]);
+            g_skyportal.SetLeds(buf[1], buf[2], buf[3], buf[4]);
             break;
         }
         case 'M': {
@@ -891,37 +887,39 @@ void SkylanderPortal::ControlTransfer(uint8_t *buf, uint32_t length) {
 }
 
 std::array<uint8_t, 64> SkylanderPortal::GetStatus() {
-    std::lock_guard lock(m_queryMutex);
     std::array<uint8_t, 64> interruptResponse = {};
 
-    if (!m_queries.empty()) {
-        interruptResponse = m_queries.front();
-        m_queries.pop();
-        // This needs to happen after ~22 milliseconds
-    } else {
-        uint32_t status = 0;
-        uint8_t active  = 0x00;
-        if (m_activated) {
-            active = 0x01;
+    {
+        std::lock_guard lock(m_queryMutex);
+        if (!m_queries.empty()) {
+            interruptResponse = m_queries.front();
+            m_queries.pop();
+            // This needs to happen after ~22 milliseconds
+            return interruptResponse;
         }
-
-        for (int i = MAX_SKYLANDERS - 1; i >= 0; i--) {
-            auto &s = m_skylanders[i];
-
-            if (!s.queuedStatus.empty()) {
-                s.status = s.queuedStatus.front();
-                s.queuedStatus.pop();
-            }
-            status <<= 2;
-            status |= s.status;
-        }
-        interruptResponse = {0x53, uint8_t(status & 0xFF), uint8_t((status >> 8) & 0xFF), uint8_t((status >> 16) & 0xFF), uint8_t((status >> 24) & 0xFF), m_interruptCounter++,
-                             active, 0x00, 0x00, 0x00, 0x00, 0x00,
-                             0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                             0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                             0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                             0x00, 0x00};
     }
+
+    // Build status packet — hold m_skyMutex to protect m_skylanders
+    std::lock_guard skyLock(m_skyMutex);
+    uint32_t status = 0;
+    uint8_t active  = m_activated ? 0x01 : 0x00;
+
+    for (int i = MAX_SKYLANDERS - 1; i >= 0; i--) {
+        auto &s = m_skylanders[i];
+
+        if (!s.queuedStatus.empty()) {
+            s.status = s.queuedStatus.front();
+            s.queuedStatus.pop();
+        }
+        status <<= 2;
+        status |= s.status;
+    }
+    interruptResponse = {0x53, uint8_t(status & 0xFF), uint8_t((status >> 8) & 0xFF), uint8_t((status >> 16) & 0xFF), uint8_t((status >> 24) & 0xFF), m_interruptCounter++,
+                         active, 0x00, 0x00, 0x00, 0x00, 0x00,
+                         0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                         0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                         0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                         0x00, 0x00};
     return interruptResponse;
 }
 
@@ -1076,7 +1074,6 @@ bool SkylanderPortal::RemoveSkylander(uint8_t skyNum) {
         thesky.queuedStatus.push(Skylander::REMOVING);
         thesky.queuedStatus.push(Skylander::REMOVED);
         thesky.Save();
-        //fclose(thesky.skyFile);
         thesky.filePath                = "";
         m_skylanderUIPositions[skyNum] = std::nullopt;
         return true;
