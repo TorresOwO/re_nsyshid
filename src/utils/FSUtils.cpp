@@ -1,8 +1,7 @@
 #include "FSUtils.hpp"
 #include "logger.h"
 
-int FSUtils::Initialize()
-{
+int FSUtils::Initialize() {
     if (clientHandle >= 0) {
         return clientHandle;
     }
@@ -26,8 +25,7 @@ int FSUtils::Initialize()
     return 0;
 }
 
-int FSUtils::Finalize()
-{
+int FSUtils::Finalize() {
     if (clientHandle < 0) {
         return clientHandle;
     }
@@ -39,8 +37,7 @@ int FSUtils::Finalize()
     return 0;
 }
 
-int FSUtils::WriteToFile(const char* path, const void* data, uint32_t size)
-{
+int FSUtils::WriteToFile(const char *path, const void *data, uint32_t size) {
     if (clientHandle < 0) {
         return clientHandle;
     }
@@ -65,10 +62,10 @@ int FSUtils::WriteToFile(const char* path, const void* data, uint32_t size)
     while (bytesWritten < size) {
         uint32_t toWrite = size - bytesWritten;
         if (toWrite > sizeof(buf)) {
-            toWrite = sizeof(buf); 
+            toWrite = sizeof(buf);
         }
 
-        memcpy(buf, (uint8_t*) data + bytesWritten, toWrite);
+        memcpy(buf, (uint8_t *) data + bytesWritten, toWrite);
         err = FSAWriteFile(clientHandle, buf, 1, toWrite, fileHandle, 0);
         if (err < 0) {
             break;
@@ -85,8 +82,7 @@ int FSUtils::WriteToFile(const char* path, const void* data, uint32_t size)
     return bytesWritten;
 }
 
-int FSUtils::ReadFromFile(const char* path, void* data, uint32_t size)
-{
+int FSUtils::ReadFromFile(const char *path, void *data, uint32_t size) {
     if (clientHandle < 0) {
         return clientHandle;
     }
@@ -111,7 +107,7 @@ int FSUtils::ReadFromFile(const char* path, void* data, uint32_t size)
     while (bytesRead < size) {
         uint32_t toRead = size - bytesRead;
         if (toRead > sizeof(buf)) {
-            toRead = sizeof(buf); 
+            toRead = sizeof(buf);
         }
 
         err = FSAReadFile(clientHandle, buf, 1, toRead, fileHandle, 0);
@@ -119,7 +115,7 @@ int FSUtils::ReadFromFile(const char* path, void* data, uint32_t size)
             break;
         }
 
-        memcpy((uint8_t*) data + bytesRead, buf, err);
+        memcpy((uint8_t *) data + bytesRead, buf, err);
         bytesRead += err;
 
         if ((uint32_t) err != toRead) {

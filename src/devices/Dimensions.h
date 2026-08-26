@@ -1,3 +1,5 @@
+#pragma once
+
 #include "Device.h"
 #include <wut.h>
 
@@ -138,7 +140,7 @@ private:
     std::array<uint8_t, 8> Encrypt(std::span<const uint8_t, 8> buf, std::optional<std::array<uint8_t, 16>> key);
     std::array<uint8_t, 16> GenerateFigureKey(const std::array<uint8_t, DIM_FIGURE_SIZE> &uid);
     std::array<uint8_t, 4> PWDGenerate(const std::array<uint8_t, DIM_FIGURE_SIZE> &uid);
-    std::array<uint8_t, 4> DimensionsRandomize(const std::vector<uint8_t> key, uint8_t count);
+    std::array<uint8_t, 4> DimensionsRandomize(const std::vector<uint8_t> &key, uint8_t count);
     uint32_t GetFigureId(const std::array<uint8_t, DIM_FIGURE_SIZE> &buf);
     uint32_t Scramble(const std::array<uint8_t, 7> &uid, uint8_t count);
     uint32_t GetNext();

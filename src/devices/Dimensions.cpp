@@ -1277,7 +1277,7 @@ std::array<uint8_t, 4> DimensionsToypad::PWDGenerate(const std::array<uint8_t, 0
     return DimensionsRandomize(pwdCalc, 8);
 }
 
-std::array<uint8_t, 4> DimensionsToypad::DimensionsRandomize(const std::vector<uint8_t> key, uint8_t count) {
+std::array<uint8_t, 4> DimensionsToypad::DimensionsRandomize(const std::vector<uint8_t> &key, uint8_t count) {
     uint32_t scrambled = 0;
     for (uint8_t i = 0; i < count; i++) {
         const uint32_t v4 = std::rotr(scrambled, 25);

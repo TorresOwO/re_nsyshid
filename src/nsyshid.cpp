@@ -96,6 +96,18 @@ HIDDevice *GetFreeHID() {
     return &HIDPool[index];
 }
 
+void ReleaseHID(HIDDevice *hid) {
+    if (hid == nullptr) {
+        return;
+    }
+    std::lock_guard<std::recursive_mutex> lock(hidMutex);
+    // Return the slot index back to the pool
+    size_t index = static_cast<size_t>(hid - HIDPool.data());
+    if (index < HID_MAX_NUM_DEVICES) {
+        HIDPoolIndexQueue.push(index);
+    }
+}
+
 std::shared_ptr<Device> GetDeviceByHandle(uint32_t handle) {
     if (m_device && m_device->m_hid->handle == handle) {
         return m_device;
@@ -146,43 +158,46 @@ DECL_FUNCTION(int32_t, HIDAddClient, HIDClient *client, HIDAttachCallback attach
         (deviceToEmulate == DeviceToEmulate::DIMENSIONS && (m_device->m_vendorId != 0x6F0E && m_device->m_productId != 0x4102))) {
         if (deviceToEmulate == DeviceToEmulate::SKYLANDER) {
             DEBUG_FUNCTION_LINE_INFO("adding emulated skylander portal");
-            HIDDevice *devicePtr;
-            auto skylanderDevice = std::make_shared<SkylanderUSBDevice>();
-            devicePtr            = GetFreeHID();
+            HIDDevice *devicePtr = GetFreeHID();
             if (devicePtr == nullptr) {
                 return 0;
             }
-            devicePtr->handle = GenerateHIDHandle();
+            devicePtr->handle    = GenerateHIDHandle();
+            auto skylanderDevice = std::make_shared<SkylanderUSBDevice>();
             skylanderDevice->AssignHID(devicePtr);
-            deviceMutex.lock();
+            std::lock_guard lock(deviceMutex);
+            if (m_device) {
+                ReleaseHID(m_device->m_hid);
+            }
             m_device = skylanderDevice;
-            deviceMutex.unlock();
         } else if (deviceToEmulate == DeviceToEmulate::INFINITY) {
             DEBUG_FUNCTION_LINE_INFO("adding emulated infinity base");
-            HIDDevice *devicePtr;
-            auto infinityDevice = std::make_shared<InfinityUSBDevice>();
-            devicePtr           = GetFreeHID();
+            HIDDevice *devicePtr = GetFreeHID();
             if (devicePtr == nullptr) {
                 return 0;
             }
-            devicePtr->handle = GenerateHIDHandle();
+            devicePtr->handle   = GenerateHIDHandle();
+            auto infinityDevice = std::make_shared<InfinityUSBDevice>();
             infinityDevice->AssignHID(devicePtr);
-            deviceMutex.lock();
+            std::lock_guard lock(deviceMutex);
+            if (m_device) {
+                ReleaseHID(m_device->m_hid);
+            }
             m_device = infinityDevice;
-            deviceMutex.unlock();
         } else if (deviceToEmulate == DeviceToEmulate::DIMENSIONS) {
             DEBUG_FUNCTION_LINE_INFO("adding emulated dimensions toypad");
-            HIDDevice *devicePtr;
-            auto dimensionsDevice = std::make_shared<DimensionsUSBDevice>();
-            devicePtr           = GetFreeHID();
+            HIDDevice *devicePtr = GetFreeHID();
             if (devicePtr == nullptr) {
                 return 0;
             }
-            devicePtr->handle = GenerateHIDHandle();
+            devicePtr->handle     = GenerateHIDHandle();
+            auto dimensionsDevice = std::make_shared<DimensionsUSBDevice>();
             dimensionsDevice->AssignHID(devicePtr);
-            deviceMutex.lock();
+            std::lock_guard lock(deviceMutex);
+            if (m_device) {
+                ReleaseHID(m_device->m_hid);
+            }
             m_device = dimensionsDevice;
-            deviceMutex.unlock();
         }
     }
     FireAttachCallbacks();
@@ -552,8 +567,7 @@ void FireAttachCallbacks() {
     EmulationStatus status;
     WUPSStorageAPI::Get(std::string_view(EMULATION_STATUS_CONFIG_ID), status);
     if (status == ENABLED) {
-        deviceMutex.lock();
-        clientMutex.lock();
+        std::scoped_lock lock(deviceMutex, clientMutex);
         if (m_device) {
             for (const auto &client : clients) {
                 bool claimedDevice = false;
@@ -568,9 +582,6 @@ void FireAttachCallbacks() {
                 }
             }
         }
-
-        clientMutex.unlock();
-        deviceMutex.unlock();
     }
 }
 
@@ -578,8 +589,7 @@ void FireDetachCallbacks() {
     EmulationStatus status;
     WUPSStorageAPI::Get(std::string_view(EMULATION_STATUS_CONFIG_ID), status);
     if (status == ENABLED) {
-        deviceMutex.lock();
-        clientMutex.lock();
+        std::scoped_lock lock(deviceMutex, clientMutex);
         if (m_device) {
             for (const auto &client : clients) {
                 if (client->attachCallback) {
@@ -588,9 +598,6 @@ void FireDetachCallbacks() {
                 }
             }
         }
-
-        clientMutex.unlock();
-        deviceMutex.unlock();
     }
 }
 

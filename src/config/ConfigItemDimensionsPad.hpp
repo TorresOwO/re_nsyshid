@@ -26,8 +26,8 @@ struct ConfigItemDimensionsPad {
     std::array<std::optional<uint32_t>, 7> figureNumbers;
     std::string rootPath;
     std::string currentPath;
-    Color topColor = Color(255, 255, 255, 255);
-    Color leftColor = Color(255, 255, 255, 255);
+    Color topColor   = Color(255, 255, 255, 255);
+    Color leftColor  = Color(255, 255, 255, 255);
     Color rightColor = Color(255, 255, 255, 255);
     std::queue<Color> topColors;
     std::queue<Color> leftColors;

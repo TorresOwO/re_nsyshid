@@ -1,7 +1,10 @@
+#pragma once
+
 #include "Device.h"
 #include <wut.h>
 
 #include <array>
+#include <condition_variable>
 #include <map>
 #include <mutex>
 #include <optional>
@@ -10,7 +13,7 @@
 
 class InfinityUSBDevice : public Device {
 public:
-    InfinityUSBDevice(/* args */);
+    InfinityUSBDevice();
     ~InfinityUSBDevice();
 
     bool GetDescriptor(uint8_t descType,
@@ -101,15 +104,17 @@ private:
     uint64_t Scramble(uint32_t numToScramble, uint32_t garbage);
     void GenerateSeed(uint32_t seed);
     uint32_t GetNext();
-    InfinityFigure &GetFigureByOrder(uint8_t orderAdded);
+    InfinityFigure *GetFigureByOrder(uint8_t orderAdded);
     uint8_t DeriveFigurePosition(uint8_t position);
     std::array<uint8_t, 16> GenerateInfinityFigureKey(const std::vector<uint8_t> &sha1Data);
-    //std::array<uint8_t, 16> GenerateBlankFigureData(uint32_t figureNum, uint8_t series);
 
     uint32_t m_randomA;
     uint32_t m_randomB;
     uint32_t m_randomC;
     uint32_t m_randomD;
+
+    std::condition_variable m_queueCV;
+    InfinityFigure m_invalidFigure{};
 
     uint8_t m_figureOrder = 0;
     std::queue<std::array<uint8_t, 32>> m_figureAddedRemovedResponses;

@@ -1,5 +1,5 @@
-#include "utils/logger.h"
 #include "utils/FSUtils.hpp"
+#include "utils/logger.h"
 #include <coreinit/filesystem.h>
 #include <wups.h>
 #include <wups/button_combo/api.h>

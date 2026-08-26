@@ -527,31 +527,30 @@ void InfinityBase::SendCommand(uint8_t *buf, uint32_t length) {
             break;
     }
 
-    m_queries.push(q_result);
+    {
+        std::lock_guard lock(m_infinityMutex);
+        m_queries.push(q_result);
+    }
+    m_queueCV.notify_one();
 }
 
 
 std::array<uint8_t, 32> InfinityBase::GetStatus() {
+    std::unique_lock lock(m_infinityMutex);
+
+    // Block until a response is available instead of busy-waiting
+    m_queueCV.wait(lock, [this] {
+        return !m_figureAddedRemovedResponses.empty() || !m_queries.empty();
+    });
+
     std::array<uint8_t, 32> response = {};
-
-    bool responded = false;
-
-    do {
-        if (!m_figureAddedRemovedResponses.empty()) {
-            memcpy(response.data(), m_figureAddedRemovedResponses.front().data(),
-                   0x20);
-            m_figureAddedRemovedResponses.pop();
-            responded = true;
-        } else if (!m_queries.empty()) {
-            memcpy(response.data(), m_queries.front().data(), 0x20);
-            m_queries.pop();
-            responded = true;
-        } else {
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        }
-        /* code */
-    } while (!responded);
-
+    if (!m_figureAddedRemovedResponses.empty()) {
+        response = m_figureAddedRemovedResponses.front();
+        m_figureAddedRemovedResponses.pop();
+    } else {
+        response = m_queries.front();
+        m_queries.pop();
+    }
     return response;
 }
 
@@ -614,15 +613,15 @@ void InfinityBase::QueryBlock(uint8_t fig_num, uint8_t block,
                               uint8_t sequence) {
     std::lock_guard lock(m_infinityMutex);
 
-    InfinityFigure &figure = GetFigureByOrder(fig_num);
+    InfinityFigure *figure = GetFigureByOrder(fig_num);
 
     replyBuf[0]              = 0xaa;
     replyBuf[1]              = 0x12;
     replyBuf[2]              = sequence;
     replyBuf[3]              = 0x00;
     const uint8_t file_block = (block == 0) ? 1 : (block * 4);
-    if (figure.present && file_block < 20) {
-        memcpy(&replyBuf[4], figure.data.data() + (16 * file_block), 16);
+    if (figure->present && file_block < 20) {
+        memcpy(&replyBuf[4], figure->data.data() + (16 * file_block), 16);
     }
     replyBuf[20] = GenerateChecksum(replyBuf, 20);
 }
@@ -633,9 +632,9 @@ void InfinityBase::WriteBlock(uint8_t fig_num, uint8_t block,
                               uint8_t sequence) {
     std::lock_guard lock(m_infinityMutex);
 
-    InfinityFigure &figure = GetFigureByOrder(fig_num);
+    InfinityFigure *figure = GetFigureByOrder(fig_num);
 
-    if (figure.orderAdded == 255 || !figure.present) {
+    if (figure->orderAdded == 255 || !figure->present) {
         DEBUG_FUNCTION_LINE_INFO("Couldn't find figure with order %u", fig_num);
     }
 
@@ -644,9 +643,9 @@ void InfinityBase::WriteBlock(uint8_t fig_num, uint8_t block,
     replyBuf[2]              = sequence;
     replyBuf[3]              = 0x00;
     const uint8_t file_block = (block == 0) ? 1 : (block * 4);
-    if (figure.present && file_block < 20) {
-        memcpy(figure.data.data() + (file_block * 16), to_write_buf, 16);
-        figure.Save();
+    if (figure->present && file_block < 20) {
+        memcpy(figure->data.data() + (file_block * 16), to_write_buf, 16);
+        figure->Save();
     }
     replyBuf[4] = GenerateChecksum(replyBuf, 4);
 }
@@ -655,39 +654,45 @@ void InfinityBase::GetFigureIdentifier(uint8_t fig_num, uint8_t sequence,
                                        std::array<uint8_t, 32> &replyBuf) {
     std::lock_guard lock(m_infinityMutex);
 
-    InfinityFigure &figure = GetFigureByOrder(fig_num);
+    InfinityFigure *figure = GetFigureByOrder(fig_num);
 
     replyBuf[0] = 0xaa;
     replyBuf[1] = 0x09;
     replyBuf[2] = sequence;
     replyBuf[3] = 0x00;
 
-    if (figure.present) {
-        memcpy(&replyBuf[4], figure.data.data(), 7);
+    if (figure->present) {
+        memcpy(&replyBuf[4], figure->data.data(), 7);
     }
     replyBuf[11] = GenerateChecksum(replyBuf, 11);
 }
 
 bool InfinityBase::RemoveFigure(uint8_t position) {
-    std::lock_guard lock(m_infinityMutex);
-    InfinityFigure &figure = m_figures[position];
+    bool pushed = false;
+    {
+        std::lock_guard lock(m_infinityMutex);
+        InfinityFigure &figure = m_figures[position];
 
-    if (figure.present) {
-        figure.figNum = 0;
-        figure.Save();
-        figure.filePath = "";
-        figure.present  = false;
+        if (figure.present) {
+            figure.figNum = 0;
+            figure.Save();
+            figure.filePath = "";
+            figure.present  = false;
 
-        position = DeriveFigurePosition(position);
-        if (position == 0) {
-            return false;
+            position = DeriveFigurePosition(position);
+            if (position == 0) {
+                return false;
+            }
+
+            std::array<uint8_t, 32> figureChangeResponse = {0xab, 0x04, position, 0x09, figure.orderAdded,
+                                                            0x01};
+            figureChangeResponse[6]                      = GenerateChecksum(figureChangeResponse, 6);
+            m_figureAddedRemovedResponses.push(figureChangeResponse);
+            pushed = true;
         }
-
-        std::array<uint8_t, 32> figureChangeResponse = {0xab, 0x04, position, 0x09, figure.orderAdded,
-                                                        0x01};
-        figureChangeResponse[6]                      = GenerateChecksum(figureChangeResponse, 6);
-        m_figureAddedRemovedResponses.push(figureChangeResponse);
-
+    }
+    if (pushed) {
+        m_queueCV.notify_one();
         return true;
     }
     return false;
@@ -698,9 +703,6 @@ InfinityBase::LoadFigure(const std::array<uint8_t, INF_FIGURE_SIZE> &buf,
                          std::string inFile, uint8_t position) {
     if (position >= 9)
         return 0;
-
-    std::lock_guard lock(m_infinityMutex);
-    uint8_t orderAdded;
 
     std::vector<uint8_t> sha1Calc = {SHA1_CONSTANT.begin(), SHA1_CONSTANT.end() - 1};
     for (int i = 0; i < 7; i++) {
@@ -722,38 +724,45 @@ InfinityBase::LoadFigure(const std::array<uint8_t, INF_FIGURE_SIZE> &buf,
     uint32_t number = uint32_t(infinity_decrypted_block[1]) << 16 | uint32_t(infinity_decrypted_block[2]) << 8 |
                       uint32_t(infinity_decrypted_block[3]);
 
-    if ((position == 0 &&
-         ((number > 0x1E8480 && number < 0x2DC6BF) || (number > 0x3D0900 && number < 0x4C4B3F))) ||
-        ((position == 1 || position == 2) && (number > 0x3D0900 && number < 0x4C4B3F)) ||
-        ((position == 3 || position == 6) && number < 0x1E847F) ||
-        ((position == 4 || position == 5 || position == 7 || position == 8) &&
-         (number > 0x2DC6C0 && number < 0x3D08FF))) {
+    uint32_t result = 0;
+    {
+        std::lock_guard lock(m_infinityMutex);
 
-        InfinityFigure &figure = m_figures[position];
+        if ((position == 0 &&
+             ((number > 0x1E8480 && number < 0x2DC6BF) || (number > 0x3D0900 && number < 0x4C4B3F))) ||
+            ((position == 1 || position == 2) && (number > 0x3D0900 && number < 0x4C4B3F)) ||
+            ((position == 3 || position == 6) && number < 0x1E847F) ||
+            ((position == 4 || position == 5 || position == 7 || position == 8) &&
+             (number > 0x2DC6C0 && number < 0x3D08FF))) {
 
-        figure.filePath = inFile;
-        figure.figNum   = number;
-        memcpy(figure.data.data(), buf.data(), figure.data.size());
-        figure.present = true;
-        if (figure.orderAdded == 255) {
-            figure.orderAdded = m_figureOrder;
-            m_figureOrder++;
+            InfinityFigure &figure = m_figures[position];
+
+            figure.filePath = inFile;
+            figure.figNum   = number;
+            memcpy(figure.data.data(), buf.data(), figure.data.size());
+            figure.present = true;
+            if (figure.orderAdded == 255) {
+                figure.orderAdded = m_figureOrder;
+                m_figureOrder++;
+            }
+            uint8_t orderAdded = figure.orderAdded;
+
+            uint8_t derivedPos = DeriveFigurePosition(position);
+            if (derivedPos == 0) {
+                figure.filePath = "";
+                return 0;
+            }
+
+            std::array<uint8_t, 32> figureChangeResponse = {0xab, 0x04, derivedPos, 0x09, orderAdded, 0x00};
+            figureChangeResponse[6]                      = GenerateChecksum(figureChangeResponse, 6);
+            m_figureAddedRemovedResponses.push(figureChangeResponse);
+            result = number;
         }
-        orderAdded = figure.orderAdded;
-
-        position = DeriveFigurePosition(position);
-        if (position == 0) {
-            figure.filePath = "";
-            return 0;
-        }
-
-        std::array<uint8_t, 32> figureChangeResponse = {0xab, 0x04, position, 0x09, orderAdded, 0x00};
-        figureChangeResponse[6]                      = GenerateChecksum(figureChangeResponse, 6);
-        m_figureAddedRemovedResponses.push(figureChangeResponse);
-
-        return number;
     }
-    return 0;
+    if (result != 0) {
+        m_queueCV.notify_one();
+    }
+    return result;
 }
 
 std::pair<uint8_t, std::string> InfinityBase::FindFigure(uint32_t figNum) {
@@ -851,14 +860,15 @@ uint32_t InfinityBase::GetNext() {
     return ret;
 }
 
-InfinityBase::InfinityFigure &InfinityBase::GetFigureByOrder(uint8_t orderAdded) {
+InfinityBase::InfinityFigure *InfinityBase::GetFigureByOrder(uint8_t orderAdded) {
     for (uint8_t i = 0; i < m_figures.size(); i++) {
         if (m_figures[i].orderAdded == orderAdded) {
-            return m_figures[i];
+            return &m_figures[i];
         }
     }
-    InfinityBase::InfinityFigure figure = {};
-    return figure;
+    // Return the sentinel invalid figure (present == false) instead of a dangling reference
+    m_invalidFigure = {};
+    return &m_invalidFigure;
 }
 
 uint8_t InfinityBase::DeriveFigurePosition(uint8_t position) {

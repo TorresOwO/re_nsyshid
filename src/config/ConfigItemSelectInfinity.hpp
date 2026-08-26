@@ -4,13 +4,13 @@
 
 #include <wups.h>
 
-#include <vector>
 #include <string>
+#include <vector>
 
-typedef void (*InfinityFigureSelectedCallback)(struct ConfigItemSelectInfinity*, const char* fileName, uint8_t slot);
+typedef void (*InfinityFigureSelectedCallback)(struct ConfigItemSelectInfinity *, const char *fileName, uint8_t slot);
 
 struct ConfigItemSelectInfinity {
-    char* configID;
+    char *configID;
     WUPSConfigItemHandle handle;
 
     InfinityFigureSelectedCallback callback;
@@ -21,8 +21,8 @@ struct ConfigItemSelectInfinity {
     std::string selectedFigure;
 };
 
-std::vector<std::string>& ConfigItemSelectInfinity_GetFavorites(void);
+std::vector<std::string> &ConfigItemSelectInfinity_GetFavorites(void);
 
 void ConfigItemSelectInfinity_Init(std::string rootPath, bool favoritesPerTitle);
 
-bool ConfigItemSelectInfinity_AddToCategory(WUPSConfigCategoryHandle cat, const char* configID, const char* displayName, uint8_t slot, const char* infinityFolder, const char* currentFigure, InfinityFigureSelectedCallback callback);
+bool ConfigItemSelectInfinity_AddToCategory(WUPSConfigCategoryHandle cat, const char *configID, const char *displayName, uint8_t slot, const char *infinityFolder, const char *currentFigure, InfinityFigureSelectedCallback callback);
