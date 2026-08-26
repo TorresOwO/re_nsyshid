@@ -10,17 +10,17 @@
 
 #include "../devices/Skylander.h"
 
-typedef void (*SkylanderSelectedCallback)(struct ConfigItemSelectSkylander*, const char* fileName, uint8_t slot);
+typedef void (*SkylanderSelectedCallback)(struct ConfigItemSelectSkylander *, const char *fileName, uint8_t slot);
 
 struct CreateFolder {
     SubFolder subfolder;
-    
-    struct CreateFolder* next;
-    struct CreateFolder* prev;
+
+    struct CreateFolder *next;
+    struct CreateFolder *prev;
 };
 
 struct ConfigItemSelectSkylander {
-    char* configID;
+    char *configID;
     WUPSConfigItemHandle handle;
 
     SkylanderSelectedCallback callback;
@@ -30,12 +30,12 @@ struct ConfigItemSelectSkylander {
     std::string currentPath;
     std::string selectedSkylander;
 
-    struct CreateFolder* createFolder;
+    struct CreateFolder *createFolder;
     std::pair<uint16_t, uint16_t> skylanderId; // skylander id and variant
 };
 
-std::vector<std::string>& ConfigItemSelectSkylander_GetFavorites(void);
+std::vector<std::string> &ConfigItemSelectSkylander_GetFavorites(void);
 
 void ConfigItemSelectSkylander_Init(std::string rootPath, bool favoritesPerTitle);
 
-bool ConfigItemSelectSkylander_AddToCategory(WUPSConfigCategoryHandle cat, const char* configID, const char* displayName, uint8_t slot, const char* skylanderFolder, const char* currentSkylander, SkylanderSelectedCallback callback);
+bool ConfigItemSelectSkylander_AddToCategory(WUPSConfigCategoryHandle cat, const char *configID, const char *displayName, uint8_t slot, const char *skylanderFolder, const char *currentSkylander, SkylanderSelectedCallback callback);

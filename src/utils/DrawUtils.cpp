@@ -5,15 +5,15 @@
 #include "DrawUtils.hpp"
 #include "utils/logger.h"
 
-#include <memory>
 #include <cstring>
+#include <memory>
 
 #include <coreinit/cache.h>
 #include <coreinit/memory.h>
 #include <coreinit/screen.h>
 
-#include <png.h>
 #include "schrift.h"
+#include <png.h>
 
 // buffer width
 #define TV_WIDTH  0x500
@@ -33,14 +33,14 @@ inline typename std::unique_ptr<T> make_unique_nothrow(size_t num) noexcept {
 }
 
 void DrawUtils::initBuffers() {
-    DrawUtils::tvSize = OSScreenGetBufferSizeEx(SCREEN_TV);
+    DrawUtils::tvSize  = OSScreenGetBufferSizeEx(SCREEN_TV);
     DrawUtils::drcSize = OSScreenGetBufferSizeEx(SCREEN_DRC);
 }
 
 void DrawUtils::beginDraw() {
-    void* (*__GetNextBufferEA)(OSScreenID screen) = (void* (*)(OSScreenID screen)) ((uint32_t) &OSScreenFlipBuffersEx + 0xac);
-    DrawUtils::tvBuffer = (uint8_t*) __GetNextBufferEA(SCREEN_TV);
-    DrawUtils::drcBuffer = (uint8_t*) __GetNextBufferEA(SCREEN_DRC);
+    void *(*__GetNextBufferEA)(OSScreenID screen) = (void *(*) (OSScreenID screen))((uint32_t) &OSScreenFlipBuffersEx + 0xac);
+    DrawUtils::tvBuffer                           = (uint8_t *) __GetNextBufferEA(SCREEN_TV);
+    DrawUtils::drcBuffer                          = (uint8_t *) __GetNextBufferEA(SCREEN_DRC);
 }
 
 void DrawUtils::endDraw() {
@@ -254,8 +254,7 @@ void DrawUtils::print(uint32_t x, uint32_t y, const char *string, bool alignRigh
         buffer[num] = 0;
     } else {
         wchar_t *tmp = buffer;
-        while ((*tmp++ = *string++))
-            ;
+        while ((*tmp++ = *string++));
     }
 
     print(x, y, buffer, alignRight);
@@ -327,8 +326,7 @@ uint32_t DrawUtils::getTextWidth(const char *string) {
         buffer[num] = 0;
     } else {
         wchar_t *tmp = buffer;
-        while ((*tmp++ = *string++))
-            ;
+        while ((*tmp++ = *string++));
     }
 
     uint32_t width = getTextWidth(buffer);

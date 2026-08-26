@@ -429,7 +429,7 @@ static bool ConfigItemSelectInfinity_callCallback(void *context) {
 
     if (item->callback && !item->selectedFigure.empty()) {
         std::array<uint8_t, 0x10 * 0x14> fileData;
-        int ret_code          = FSUtils::ReadFromFile(item->selectedFigure.c_str(), fileData.data(), fileData.size());
+        int ret_code = FSUtils::ReadFromFile(item->selectedFigure.c_str(), fileData.data(), fileData.size());
         if (ret_code == fileData.size()) {
             g_infinitybase.RemoveFigure(item->slot);
             int32_t figNum = g_infinitybase.LoadFigure(fileData, item->selectedFigure, item->slot);
