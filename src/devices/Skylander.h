@@ -192,8 +192,17 @@ public:
     uint8_t LoadSkylander(uint8_t *buf, std::string file);
     bool RemoveSkylander(uint8_t skyNum);
     bool CreateSkylander(std::string pathName, uint16_t skyId, uint16_t skyVar);
-    uint16_t SkylanderCRC16(uint16_t initValue, const uint8_t *buffer, uint32_t size);
+    struct SkylanderDetails {
+        uint16_t id = 0;
+        uint16_t variant = 0;
+        const char *name = "";
+        std::string game = "SSA";
+        std::string element = "Magic";
+        std::string type = "core";
+    };
+
     static std::map<const std::pair<const uint16_t, const uint16_t>, const char *> GetListSkylanders();
+    static std::vector<SkylanderDetails> GetAllSkylandersDetailed();
     static std::vector<std::pair<const uint16_t, const uint16_t>> GetSkylandersForFolder(const SubFolder &folder);
     std::string FindSkylander(uint16_t skyId, uint16_t skyVar);
 

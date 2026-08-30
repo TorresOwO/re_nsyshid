@@ -265,12 +265,14 @@ void registerSkylanderEndpoints(HttpServer &server) {
             ->options(corsOptionsHandler)
             ->requested([](const HttpRequest &req) {
                 miniJson::Json::_array list;
-                for (const auto &[idvar, name] : SkylanderPortal::GetListSkylanders()) {
+                for (const auto &sky : SkylanderPortal::GetAllSkylandersDetailed()) {
                     miniJson::Json::_object item;
-                    item["id"]      = (double) idvar.first;
-                    item["variant"] = (double) idvar.second;
-                    item["name"]    = std::string(name);
-                    item["type"]    = "skylander";
+                    item["id"]      = (double) sky.id;
+                    item["variant"] = (double) sky.variant;
+                    item["name"]    = std::string(sky.name);
+                    item["game"]    = sky.game;
+                    item["element"] = sky.element;
+                    item["type"]    = sky.type;
                     list.push_back(item);
                 }
                 return HttpResponse{200, list};

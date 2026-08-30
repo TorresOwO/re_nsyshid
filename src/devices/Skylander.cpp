@@ -1160,6 +1160,126 @@ std::map<const std::pair<const uint16_t, const uint16_t>, const char *> Skylande
     return s_listSkylanders;
 }
 
+std::vector<SkylanderPortal::SkylanderDetails> SkylanderPortal::GetAllSkylandersDetailed() {
+    static std::map<std::pair<uint16_t, uint16_t>, SubFolder> s_pairToFolder;
+    if (s_pairToFolder.empty()) {
+        for (const auto &[folder, list] : s_skylanderUIList) {
+            for (const auto &p : list) {
+                s_pairToFolder[p] = folder;
+            }
+        }
+    }
+
+    std::vector<SkylanderDetails> result;
+    result.reserve(s_listSkylanders.size());
+
+    for (const auto &[idvar, name] : s_listSkylanders) {
+        SkylanderDetails det;
+        det.id      = idvar.first;
+        det.variant = idvar.second;
+        det.name    = name;
+
+        // Try lookup by exact (id, variant) or by (id, 0)
+        SubFolder folder = TOP;
+        auto it          = s_pairToFolder.find(idvar);
+        if (it != s_pairToFolder.end()) {
+            folder = it->second;
+        } else {
+            auto it2 = s_pairToFolder.find({idvar.first, 0});
+            if (it2 != s_pairToFolder.end()) {
+                folder = it2->second;
+            }
+        }
+
+        // Determine Game
+        if (folder >= SSA && folder <= SSA_SIDEKICK) det.game = "SSA";
+        else if (folder >= SG && folder <= SG_SIDEKICK) det.game = "SG";
+        else if (folder >= SSF && folder <= SSF_MAGIC_ITEM) det.game = "SSF";
+        else if (folder >= STT && folder <= STT_TRAP_KAOS) det.game = "STT";
+        else if (folder >= SSC && folder <= SSC_TROPHIES) det.game = "SSC";
+        else {
+            // Fallback by ID
+            if (det.id <= 32 || (det.id >= 200 && det.id < 208) || (det.id >= 300 && det.id < 305)) det.game = "SSA";
+            else if ((det.id >= 100 && det.id <= 115) || det.id == 208 || det.id == 209) det.game = "SG";
+            else if ((det.id >= 1000 && det.id < 3000) || (det.id >= 3000 && det.id < 3200) || (det.id >= 3200 && det.id < 3400)) det.game = "SSF";
+            else if ((det.id >= 450 && det.id <= 485) || (det.id >= 210 && det.id <= 220) || (det.id >= 230 && det.id <= 233) || (det.id >= 305 && det.id <= 308)) det.game = "STT";
+            else if ((det.id >= 3400 && det.id < 3500) || (det.id >= 3220 && det.id < 3250) || (det.id >= 3500 && det.id < 3504)) det.game = "SSC";
+            else if (det.id >= 500 && det.id < 600) det.game = (det.id < 540 ? "SSA" : (det.id < 550 ? "SG" : "STT"));
+            else det.game = "SSA";
+        }
+
+        // Determine Element
+        if (folder == SSA_CHAR_AIR || folder == SG_CHAR_AIR || folder == SSF_SWAP_AIR || folder == SSF_CHAR_AIR || folder == STT_CHAR_AIR || folder == STT_TRAP_AIR || folder == SSC_CHAR_AIR || folder == SSC_VEHICLE_AIR) det.element = "Air";
+        else if (folder == SSA_CHAR_EARTH || folder == SG_CHAR_EARTH || folder == SSF_SWAP_EARTH || folder == SSF_CHAR_EARTH || folder == STT_CHAR_EARTH || folder == STT_TRAP_EARTH || folder == SSC_CHAR_EARTH || folder == SSC_VEHICLE_LAND) det.element = "Earth";
+        else if (folder == SSA_CHAR_FIRE || folder == SG_CHAR_FIRE || folder == SSF_SWAP_FIRE || folder == SSF_CHAR_FIRE || folder == STT_CHAR_FIRE || folder == STT_TRAP_FIRE || folder == SSC_CHAR_FIRE) det.element = "Fire";
+        else if (folder == SSA_CHAR_WATER || folder == SG_CHAR_WATER || folder == SSF_SWAP_WATER || folder == SSF_CHAR_WATER || folder == STT_CHAR_WATER || folder == STT_TRAP_WATER || folder == SSC_CHAR_WATER || folder == SSC_VEHICLE_SEA) det.element = "Water";
+        else if (folder == SSA_CHAR_MAGIC || folder == SG_CHAR_MAGIC || folder == SSF_SWAP_MAGIC || folder == SSF_CHAR_MAGIC || folder == STT_CHAR_MAGIC || folder == STT_TRAP_MAGIC || folder == SSC_CHAR_MAGIC) det.element = "Magic";
+        else if (folder == SSA_CHAR_TECH || folder == SG_CHAR_TECH || folder == SSF_SWAP_TECH || folder == SSF_CHAR_TECH || folder == STT_CHAR_TECH || folder == STT_TRAP_TECH || folder == SSC_CHAR_TECH) det.element = "Tech";
+        else if (folder == SSA_CHAR_LIFE || folder == SG_CHAR_LIFE || folder == SSF_SWAP_LIFE || folder == SSF_CHAR_LIFE || folder == STT_CHAR_LIFE || folder == STT_TRAP_LIFE || folder == SSC_CHAR_LIFE) det.element = "Life";
+        else if (folder == SSA_CHAR_UNDEAD || folder == SG_CHAR_UNDEAD || folder == SSF_SWAP_UNDEAD || folder == SSF_CHAR_UNDEAD || folder == STT_CHAR_UNDEAD || folder == STT_TRAP_UNDEAD || folder == SSC_CHAR_UNDEAD) det.element = "Undead";
+        else if (folder == STT_CHAR_LIGHT || folder == STT_TRAP_LIGHT || folder == SSC_CHAR_LIGHT) det.element = "Light";
+        else if (folder == STT_CHAR_DARK || folder == STT_TRAP_DARK || folder == SSC_CHAR_DARK) det.element = "Dark";
+        else if (folder == STT_TRAP_KAOS) det.element = "Kaos";
+        else {
+            // Fallback heuristics for giants/items
+            if (det.id == 100) det.element = "Air";
+            else if (det.id == 101 || det.id == 102) det.element = "Life";
+            else if (det.id == 103) det.element = "Earth";
+            else if (det.id == 104) det.element = "Tech";
+            else if (det.id == 105) det.element = "Fire";
+            else if (det.id == 106 || det.id == 107) det.element = "Water";
+            else if (det.id == 108 || det.id == 109) det.element = "Magic";
+            else if (det.id == 110 || det.id == 111) det.element = "Tech";
+            else if (det.id == 112 || det.id == 113) det.element = "Life";
+            else if (det.id == 114 || det.id == 115) det.element = "Undead";
+            else if (det.id <= 3 || det.id == 3000 || det.id == 3001 || det.id == 3406 || det.id == 3413) det.element = "Air";
+            else if ((det.id >= 4 && det.id <= 7) || det.id == 3002 || det.id == 3003 || det.id == 3411 || det.id == 3416) det.element = "Earth";
+            else if ((det.id >= 8 && det.id <= 11) || det.id == 3004 || det.id == 3005 || det.id == 3412 || det.id == 3421 || det.id == 3424) det.element = "Fire";
+            else if ((det.id >= 12 && det.id <= 15) || det.id == 3014 || det.id == 3015 || det.id == 3422 || det.id == 3425) det.element = "Water";
+            else if ((det.id >= 16 && det.id <= 18) || det.id == 23 || det.id == 28 || det.id == 3008 || det.id == 3009 || det.id == 3402 || det.id == 3420) det.element = "Magic";
+            else if ((det.id >= 19 && det.id <= 22) || det.id == 3010 || det.id == 3011 || det.id == 3401 || det.id == 3414) det.element = "Tech";
+            else if ((det.id >= 24 && det.id <= 27) || det.id == 3006 || det.id == 3007 || det.id == 3415 || det.id == 3423 || det.id == 3428) det.element = "Life";
+            else if ((det.id >= 29 && det.id <= 32) || det.id == 3012 || det.id == 3013 || det.id == 3400 || det.id == 3417) det.element = "Undead";
+            else det.element = "Magic";
+        }
+
+        // Determine Type
+        if (folder == SG_GIANTS) det.type = "giant";
+        else if (folder >= SSF_SWAPPERS && folder <= SSF_SWAP_UNDEAD) det.type = "swapper";
+        else if (folder >= STT_TRAPS && folder <= STT_TRAP_KAOS) det.type = "trap";
+        else if (folder == STT_MINIS || folder == SSA_SIDEKICK || folder == SG_SIDEKICK) det.type = "mini";
+        else if (folder == SSA_MAGIC_ITEM || folder == SG_MAGIC_ITEM || folder == SSF_MAGIC_ITEM || folder == STT_MAGIC_ITEM) det.type = "magic-item";
+        else if (folder >= SSC_VEHICLES && folder <= SSC_VEHICLE_SEA) det.type = "vehicle";
+        else if (folder == SSC_TROPHIES) det.type = "trophy";
+        else {
+            // Check if Trap Master
+            if (det.id >= 450 && det.id <= 485) {
+                det.type = "trap-master";
+            } else if (det.id >= 1000 && det.id < 3000) {
+                det.type = "swapper";
+            } else if (det.id == 101 || det.id == 102 || det.id == 104 || det.id == 107 || det.id == 109 || det.id == 110 || det.id == 112 || det.id == 114) {
+                det.type = "giant";
+            } else if (det.id >= 210 && det.id <= 220) {
+                det.type = "trap";
+            } else if ((det.id >= 200 && det.id <= 209) || (det.id >= 300 && det.id <= 308) || (det.id >= 3200 && det.id <= 3204) || (det.id >= 3300 && det.id <= 3303)) {
+                det.type = "magic-item";
+            } else if (det.id >= 3220 && det.id <= 3241) {
+                det.type = "vehicle";
+            } else if (det.id >= 3500 && det.id <= 3503) {
+                det.type = "trophy";
+            } else if (det.id >= 500 && det.id < 600) {
+                det.type = "mini";
+            } else {
+                det.type = "core";
+            }
+        }
+
+        result.push_back(det);
+    }
+
+    return result;
+}
+
 std::vector<std::pair<const uint16_t, const uint16_t>> SkylanderPortal::GetSkylandersForFolder(const SubFolder &folder) {
     const auto &it = s_skylanderUIList.find(folder);
     if (it != s_skylanderUIList.end()) {
