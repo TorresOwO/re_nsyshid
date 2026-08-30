@@ -54,7 +54,7 @@ WUPS_USE_STORAGE("re_nsyshid"); // Unique id for the storage api
 EmulationStatus sEmulationStatus = EMULATION_STATUS_DEFAULT_VALUE;
 DeviceToEmulate sEmulatedDevice  = EMULATED_DEVICE_DEFAULT_VALUE;
 
-#define ENABLE_SERVER_DEFAULT_VALUE false
+#define ENABLE_SERVER_DEFAULT_VALUE true
 #define ENABLE_SERVER_CONFIG_ID     "enableServer"
 bool enableServer = ENABLE_SERVER_DEFAULT_VALUE;
 
@@ -104,24 +104,17 @@ void make_server() {
     }
 
     server_made = true;
-    DEBUG_FUNCTION_LINE("Server started.");
+    DEBUG_FUNCTION_LINE("Server started on port 9090.");
 
     try {
-        // Empty endpoint to allow for device discovery.
-        server.when("/")->requested([](const HttpRequest &req) {
-            return HttpResponse{200, "text/plain", "re_nsyshid"};
-        });
-
         registerStatusEndpoints(server);
         registerSkylanderEndpoints(server);
         registerInfinityEndpoints(server);
         registerDimensionsEndpoints(server);
         registerFileEndpoints(server);
 
-        // TODO: Make the port configurable
-        server.startListening(8853);
+        server.startListening(9090);
     } catch (std::exception &e) {
-        // FIXME: write good strings that can easily be translated
         NotificationModule_AddErrorNotification("re_nsyshid threw an exception. If the problem persists, check system logs.");
         DEBUG_FUNCTION_LINE_INFO("Exception thrown in the HTTP server: %s\n", e.what());
     }

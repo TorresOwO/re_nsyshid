@@ -1188,6 +1188,16 @@ const std::pair<const uint16_t, const uint16_t> SkylanderPortal::GetSkylanderIdF
     return {0, 0};
 }
 
+bool SkylanderPortal::IsSlotOccupied(uint8_t uiSlot) {
+    if (uiSlot >= MAX_SKYLANDERS) return false;
+    return m_skylanderUIPositions[uiSlot].has_value();
+}
+
+int8_t SkylanderPortal::GetPortalSlotFromUISlot(uint8_t uiSlot) {
+    if (uiSlot >= MAX_SKYLANDERS) return -1;
+    return m_skylanderUIPositions[uiSlot] ? (int8_t) m_skylanderUIPositions[uiSlot].value() : -1;
+}
+
 void SkylanderPortal::Skylander::Save() {
     if (filePath.empty()) {
         DEBUG_FUNCTION_LINE("No Skylander file present to save");

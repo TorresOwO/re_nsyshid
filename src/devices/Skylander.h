@@ -199,6 +199,8 @@ public:
 
     std::string GetSkylanderFromUISlot(uint8_t uiSlot);
     const std::pair<const uint16_t, const uint16_t> GetSkylanderIdFromUISlot(uint8_t uiSlot);
+    bool IsSlotOccupied(uint8_t uiSlot);
+    int8_t GetPortalSlotFromUISlot(uint8_t uiSlot);
 
 protected:
     std::mutex m_skyMutex;
