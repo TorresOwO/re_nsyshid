@@ -5,7 +5,9 @@
 
 #include <algorithm>
 #include <cctype>
+#include <dirent.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 static void ensureSkylandersDirectory() {
     mkdir("/vol/external01/wiiu/re_nsyshid", 0777);
@@ -524,9 +526,233 @@ static HttpResponse handleUpload(const HttpRequest &req) {
     return HttpResponse{200, res};
 }
 
+static HttpResponse handleVault(const HttpRequest &req) {
+    ensureSkylandersDirectory();
+    std::string dirPath = "/vol/external01/wiiu/re_nsyshid/Skylanders";
+
+    miniJson::Json::_object ret;
+    miniJson::Json::_array figures;
+
+    DIR *dir = opendir(dirPath.c_str());
+    if (dir) {
+        struct dirent *ent;
+        while ((ent = readdir(dir)) != nullptr) {
+            std::string filename = ent->d_name;
+            if (filename == "." || filename == "..") continue;
+
+            if (filename.rfind(".sky") == std::string::npos && filename.rfind(".bin") == std::string::npos) {
+                continue;
+            }
+
+            std::string fullPath = dirPath + "/" + filename;
+            std::array<uint8_t, 1024> fileData{};
+            int readBytes = FSUtils::ReadFromFile(fullPath.c_str(), fileData.data(), fileData.size());
+            if (readBytes >= 32) {
+                uint16_t skyId = 0, skyVar = 0;
+                std::string name, game, element, type;
+                uint32_t level = 1, money = 0;
+
+                SkylanderPortal::ParseTagMetadata(fileData.data(), skyId, skyVar, name, game, element, type, level, money);
+
+                int8_t loadedSlot = g_skyportal.GetUISlotForFilePath(fullPath);
+
+                miniJson::Json::_object fig;
+                fig["filename"] = filename;
+                fig["path"]     = fullPath;
+                fig["size"]     = (double) readBytes;
+                fig["id"]       = (double) skyId;
+                fig["variant"]  = (double) skyVar;
+                fig["name"]     = name;
+                fig["game"]     = game;
+                fig["element"]  = element;
+                fig["type"]     = type;
+                fig["level"]    = (double) level;
+                fig["money"]    = (double) money;
+                fig["loaded"]   = (loadedSlot >= 0);
+                if (loadedSlot >= 0) {
+                    fig["slot"] = (double) loadedSlot;
+                }
+
+                figures.push_back(fig);
+            }
+        }
+        closedir(dir);
+    }
+
+    ret["success"] = true;
+    ret["count"]   = (double) figures.size();
+    ret["figures"] = figures;
+    return HttpResponse{200, ret};
+}
+
+static HttpResponse handleDelete(const HttpRequest &req) {
+    miniJson::Json::_object res;
+    std::string filename;
+
+    auto bodyJson = req.json();
+    if (bodyJson.isObject()) {
+        auto obj = bodyJson.toObject();
+        if (obj.count("filename") && obj["filename"].isString()) {
+            filename = obj["filename"].toString();
+        } else if (obj.count("path") && obj["path"].isString()) {
+            filename = obj["path"].toString();
+        }
+    }
+
+    if (filename.empty()) {
+        std::string query = req.getQuery();
+        size_t fnPos = query.find("filename=");
+        if (fnPos != std::string::npos) {
+            filename = decodeUrlString(query.substr(fnPos + 9));
+            size_t amp = filename.find('&');
+            if (amp != std::string::npos) filename = filename.substr(0, amp);
+        } else {
+            size_t pPos = query.find("path=");
+            if (pPos != std::string::npos) {
+                filename = decodeUrlString(query.substr(pPos + 5));
+                size_t amp = filename.find('&');
+                if (amp != std::string::npos) filename = filename.substr(0, amp);
+            }
+        }
+    }
+
+    if (filename.empty()) {
+        res["success"] = false;
+        res["message"] = "Missing 'filename' parameter";
+        return HttpResponse{400, res};
+    }
+
+    std::string fullPath;
+    if (filename.rfind("/vol/", 0) == 0) {
+        fullPath = filename;
+    } else {
+        if (filename.rfind(".sky") == std::string::npos && filename.rfind(".bin") == std::string::npos) {
+            filename += ".sky";
+        }
+        fullPath = "/vol/external01/wiiu/re_nsyshid/Skylanders/" + sanitizeFileName(filename);
+    }
+
+    // If loaded on portal, remove it first
+    int8_t loadedSlot = g_skyportal.GetUISlotForFilePath(fullPath);
+    if (loadedSlot >= 0) {
+        g_skyportal.RemoveSkylander((uint8_t) loadedSlot);
+    }
+
+    int rc = unlink(fullPath.c_str());
+    if (rc == 0) {
+        res["success"] = true;
+        res["message"] = "Figure file deleted successfully: " + filename;
+        return HttpResponse{200, res};
+    } else {
+        res["success"] = false;
+        res["message"] = "Failed to delete file or file not found: " + fullPath;
+        return HttpResponse{404, res};
+    }
+}
+
+static HttpResponse handleRename(const HttpRequest &req) {
+    miniJson::Json::_object res;
+    std::string oldName, newName;
+
+    auto bodyJson = req.json();
+    if (bodyJson.isObject()) {
+        auto obj = bodyJson.toObject();
+        if (obj.count("oldFilename") && obj["oldFilename"].isString()) {
+            oldName = obj["oldFilename"].toString();
+        } else if (obj.count("from") && obj["from"].isString()) {
+            oldName = obj["from"].toString();
+        }
+        if (obj.count("newFilename") && obj["newFilename"].isString()) {
+            newName = obj["newFilename"].toString();
+        } else if (obj.count("to") && obj["to"].isString()) {
+            newName = obj["to"].toString();
+        }
+    }
+
+    if (oldName.empty() || newName.empty()) {
+        res["success"] = false;
+        res["message"] = "Missing 'oldFilename' or 'newFilename' parameter";
+        return HttpResponse{400, res};
+    }
+
+    if (oldName.rfind(".sky") == std::string::npos && oldName.rfind(".bin") == std::string::npos) oldName += ".sky";
+    if (newName.rfind(".sky") == std::string::npos && newName.rfind(".bin") == std::string::npos) newName += ".sky";
+
+    std::string oldPath = "/vol/external01/wiiu/re_nsyshid/Skylanders/" + sanitizeFileName(oldName);
+    std::string newPath = "/vol/external01/wiiu/re_nsyshid/Skylanders/" + sanitizeFileName(newName);
+
+    int rc = rename(oldPath.c_str(), newPath.c_str());
+    if (rc == 0) {
+        res["success"]  = true;
+        res["oldPath"]  = oldPath;
+        res["newPath"]  = newPath;
+        res["filename"] = sanitizeFileName(newName);
+        res["message"]  = "File renamed successfully";
+        return HttpResponse{200, res};
+    } else {
+        res["success"] = false;
+        res["message"] = "Failed to rename file or file not found";
+        return HttpResponse{400, res};
+    }
+}
+
+static HttpResponse handleDuplicate(const HttpRequest &req) {
+    miniJson::Json::_object res;
+    std::string srcName, dstName;
+
+    auto bodyJson = req.json();
+    if (bodyJson.isObject()) {
+        auto obj = bodyJson.toObject();
+        if (obj.count("filename") && obj["filename"].isString()) {
+            srcName = obj["filename"].toString();
+        } else if (obj.count("src") && obj["src"].isString()) {
+            srcName = obj["src"].toString();
+        }
+        if (obj.count("newFilename") && obj["newFilename"].isString()) {
+            dstName = obj["newFilename"].toString();
+        } else if (obj.count("dst") && obj["dst"].isString()) {
+            dstName = obj["dst"].toString();
+        }
+    }
+
+    if (srcName.empty()) {
+        res["success"] = false;
+        res["message"] = "Missing source 'filename' parameter";
+        return HttpResponse{400, res};
+    }
+
+    if (srcName.rfind(".sky") == std::string::npos && srcName.rfind(".bin") == std::string::npos) srcName += ".sky";
+    if (dstName.empty()) {
+        dstName = "copy_" + srcName;
+    } else {
+        if (dstName.rfind(".sky") == std::string::npos && dstName.rfind(".bin") == std::string::npos) dstName += ".sky";
+    }
+
+    std::string srcPath = "/vol/external01/wiiu/re_nsyshid/Skylanders/" + sanitizeFileName(srcName);
+    std::string dstPath = "/vol/external01/wiiu/re_nsyshid/Skylanders/" + sanitizeFileName(dstName);
+
+    std::array<uint8_t, 1024> fileData{};
+    int readBytes = FSUtils::ReadFromFile(srcPath.c_str(), fileData.data(), fileData.size());
+    if (readBytes > 0) {
+        int writeBytes = FSUtils::WriteToFile(dstPath.c_str(), fileData.data(), readBytes);
+        if (writeBytes > 0) {
+            res["success"]     = true;
+            res["srcFilename"] = sanitizeFileName(srcName);
+            res["dstFilename"] = sanitizeFileName(dstName);
+            res["path"]        = dstPath;
+            res["message"]     = "Figure duplicated successfully";
+            return HttpResponse{200, res};
+        }
+    }
+
+    res["success"] = false;
+    res["message"] = "Failed to duplicate file: source not found or SD write error";
+    return HttpResponse{400, res};
+}
+
 static HttpResponse corsOptionsHandler(const HttpRequest &req) {
     HttpResponse res(200);
-    res["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS";
+    res["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS, DELETE";
     res["Access-Control-Allow-Headers"] = "Content-Type, Accept, X-Filename, Content-Disposition";
     res["Access-Control-Max-Age"]       = "86400";
     return res;
@@ -630,6 +856,58 @@ void registerSkylanderEndpoints(HttpServer &server) {
     server.when("/api/upload")
             ->options(corsOptionsHandler)
             ->posted(handleUpload);
+
+    // ==========================================
+    // 🏦 Vault / Storage Endpoints (/api/skylanders/vault, /api/skylanders/files, /api/vault)
+    // ==========================================
+    server.when("/api/skylanders/vault")
+            ->options(corsOptionsHandler)
+            ->requested(handleVault);
+
+    server.when("/api/skylanders/files")
+            ->options(corsOptionsHandler)
+            ->requested(handleVault);
+
+    server.when("/api/vault")
+            ->options(corsOptionsHandler)
+            ->requested(handleVault);
+
+    // ==========================================
+    // 🗑️ Delete / Release Endpoints (/api/skylanders/delete & /api/delete)
+    // ==========================================
+    server.when("/api/skylanders/delete")
+            ->options(corsOptionsHandler)
+            ->posted(handleDelete);
+
+    server.when("/api/delete")
+            ->options(corsOptionsHandler)
+            ->posted(handleDelete);
+
+    // ==========================================
+    // ✏️ Rename Endpoints (/api/skylanders/rename & /api/rename)
+    // ==========================================
+    server.when("/api/skylanders/rename")
+            ->options(corsOptionsHandler)
+            ->posted(handleRename);
+
+    server.when("/api/rename")
+            ->options(corsOptionsHandler)
+            ->posted(handleRename);
+
+    // ==========================================
+    // 📑 Duplicate / Clone Endpoints (/api/skylanders/duplicate, /api/skylanders/clone, /api/duplicate)
+    // ==========================================
+    server.when("/api/skylanders/duplicate")
+            ->options(corsOptionsHandler)
+            ->posted(handleDuplicate);
+
+    server.when("/api/skylanders/clone")
+            ->options(corsOptionsHandler)
+            ->posted(handleDuplicate);
+
+    server.when("/api/duplicate")
+            ->options(corsOptionsHandler)
+            ->posted(handleDuplicate);
 
     // ==========================================
     // 📦 re_nsyshid Legacy / Dashboard Endpoints

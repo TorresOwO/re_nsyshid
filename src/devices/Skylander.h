@@ -213,6 +213,8 @@ public:
     int8_t GetPortalSlotFromUISlot(uint8_t uiSlot);
     bool GetSkylanderStats(uint8_t uiSlot, uint32_t &level, uint32_t &money);
     bool GetSkylanderRawData(uint8_t uiSlot, std::vector<uint8_t> &outData, std::string &outName, std::string &outFilePath);
+    int8_t GetUISlotForFilePath(const std::string &filePath);
+    static bool ParseTagMetadata(const uint8_t *tagData, uint16_t &skyId, uint16_t &skyVar, std::string &name, std::string &game, std::string &element, std::string &type, uint32_t &level, uint32_t &money);
 
 protected:
     std::mutex m_skyMutex;

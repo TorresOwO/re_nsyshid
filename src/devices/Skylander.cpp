@@ -1436,6 +1436,124 @@ bool SkylanderPortal::GetSkylanderRawData(uint8_t uiSlot, std::vector<uint8_t> &
     return true;
 }
 
+int8_t SkylanderPortal::GetUISlotForFilePath(const std::string &filePath) {
+    std::lock_guard lock(m_skyMutex);
+    for (uint8_t i = 0; i < MAX_SKYLANDERS; i++) {
+        if (m_skylanderUIPositions[i]) {
+            uint8_t pSlot = m_skylanderUIPositions[i].value();
+            if (m_skylanders[pSlot].filePath == filePath) {
+                return (int8_t) i;
+            }
+        }
+    }
+    return -1;
+}
+
+bool SkylanderPortal::ParseTagMetadata(const uint8_t *tagData, uint16_t &skyId, uint16_t &skyVar, std::string &name, std::string &game, std::string &element, std::string &type, uint32_t &level, uint32_t &money) {
+    if (!tagData) return false;
+
+    skyId  = uint16_t(tagData[0x11]) << 8 | uint16_t(tagData[0x10]);
+    skyVar = uint16_t(tagData[0x1D]) << 8 | uint16_t(tagData[0x1C]);
+    name   = g_skyportal.FindSkylander(skyId, skyVar);
+
+    // Look up detailed metadata from catalog
+    for (const auto &det : GetAllSkylandersDetailed()) {
+        if (det.id == skyId && (det.variant == skyVar || det.variant == (skyVar & 0xFF00))) {
+            game    = det.game;
+            element = det.element;
+            type    = det.type;
+            break;
+        }
+    }
+    if (game.empty()) game = "SSA";
+    if (element.empty()) element = "Magic";
+    if (type.empty()) type = "core";
+
+    level = 1;
+    money = 0;
+
+    bool raw0Empty = true;
+    for (int i = 0; i < 16; i++) {
+        if (tagData[0x08 * 16 + i] != 0) {
+            raw0Empty = false;
+            break;
+        }
+    }
+
+    bool raw1Empty = true;
+    for (int i = 0; i < 16; i++) {
+        if (tagData[0x24 * 16 + i] != 0) {
+            raw1Empty = false;
+            break;
+        }
+    }
+
+    if (raw0Empty && raw1Empty) {
+        return true;
+    }
+
+    auto decryptBlock = [&](uint8_t blockNum, uint8_t *outDecrypted) {
+        uint8_t md5_input[0x56];
+        memcpy(md5_input, tagData, 0x20);
+        md5_input[0x20] = blockNum;
+        memcpy(md5_input + 0x21, " Copyright (C) 2010 Activision. All Rights Reserved. ", 53);
+
+        uint8_t key[16];
+        md5_hash(md5_input, 0x56, key);
+
+        struct AES_ctx ctx;
+        AES_init_ctx(&ctx, key);
+
+        memcpy(outDecrypted, tagData + (blockNum * 16), 16);
+        AES_ECB_decrypt(&ctx, outDecrypted);
+    };
+
+    uint8_t dec0[16] = {0}, dec1[16] = {0};
+    if (!raw0Empty) decryptBlock(0x08, dec0);
+    if (!raw1Empty) decryptBlock(0x24, dec1);
+
+    const uint8_t *activeDec = nullptr;
+    if (!raw0Empty && raw1Empty) {
+        activeDec = dec0;
+    } else if (raw0Empty && !raw1Empty) {
+        activeDec = dec1;
+    } else if (!raw0Empty && !raw1Empty) {
+        uint8_t seq0 = dec0[9];
+        uint8_t seq1 = dec1[9];
+        if ((int8_t)(seq1 - seq0) > 0) {
+            activeDec = dec1;
+        } else {
+            activeDec = dec0;
+        }
+    }
+
+    if (!activeDec) {
+        return true;
+    }
+
+    uint32_t xp = (uint32_t) activeDec[0] | ((uint32_t) activeDec[1] << 8) | ((uint32_t) activeDec[2] << 16);
+    money       = (uint32_t) activeDec[3] | ((uint32_t) activeDec[4] << 8);
+
+    if (money > 65000) money = 0;
+
+    static const uint32_t XP_THRESHOLDS[20] = {
+        0, 1000, 2200, 3800, 6000, 9000, 13000, 18200, 24800, 33000,
+        43000, 55000, 69000, 85000, 103000, 123000, 145000, 169000, 195000, 223000
+    };
+
+    level = 1;
+    for (int l = 19; l >= 0; l--) {
+        if (xp >= XP_THRESHOLDS[l]) {
+            level = (uint32_t)(l + 1);
+            break;
+        }
+    }
+
+    if (level > 20 || level < 1) level = 1;
+
+    return true;
+}
+
 void SkylanderPortal::Skylander::Save() {
     if (filePath.empty()) {
         DEBUG_FUNCTION_LINE("No Skylander file present to save");
