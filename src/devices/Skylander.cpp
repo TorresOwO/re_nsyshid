@@ -1332,6 +1332,29 @@ bool SkylanderPortal::GetSkylanderStats(uint8_t uiSlot, uint32_t &level, uint32_
     const auto &thesky      = m_skylanders[m_skylanderUIPositions[uiSlot].value()];
     const uint8_t *tagData  = thesky.data.data();
 
+    // Check if raw blocks 0x08 and 0x24 are empty (unwritten / fresh figure)
+    bool raw0Empty = true;
+    for (int i = 0; i < 16; i++) {
+        if (tagData[0x08 * 16 + i] != 0) {
+            raw0Empty = false;
+            break;
+        }
+    }
+
+    bool raw1Empty = true;
+    for (int i = 0; i < 16; i++) {
+        if (tagData[0x24 * 16 + i] != 0) {
+            raw1Empty = false;
+            break;
+        }
+    }
+
+    if (raw0Empty && raw1Empty) {
+        level = 1;
+        money = 0;
+        return true;
+    }
+
     // Helper to decrypt block (0x08 for Area 0, 0x24 for Area 1)
     auto decryptBlock = [&](uint8_t blockNum, uint8_t *outDecrypted) {
         uint8_t md5_input[0x56];
@@ -1349,32 +1372,35 @@ bool SkylanderPortal::GetSkylanderStats(uint8_t uiSlot, uint32_t &level, uint32_
         AES_ECB_decrypt(&ctx, outDecrypted);
     };
 
-    uint8_t dec0[16], dec1[16];
-    decryptBlock(0x08, dec0);
-    decryptBlock(0x24, dec1);
+    uint8_t dec0[16] = {0}, dec1[16] = {0};
+    if (!raw0Empty) decryptBlock(0x08, dec0);
+    if (!raw1Empty) decryptBlock(0x24, dec1);
 
-    uint8_t seq0 = dec0[9];
-    uint8_t seq1 = dec1[9];
-
-    // Determine active save area by sequence counter
-    const uint8_t *activeDec = dec0;
-    if (seq0 == 0 && seq1 == 0) {
-        bool hasData0 = false, hasData1 = false;
-        for (int i = 0; i < 16; i++) {
-            if (dec0[i]) hasData0 = true;
-            if (dec1[i]) hasData1 = true;
-        }
-        if (!hasData0 && hasData1) activeDec = dec1;
-    } else {
+    const uint8_t *activeDec = nullptr;
+    if (!raw0Empty && raw1Empty) {
+        activeDec = dec0;
+    } else if (raw0Empty && !raw1Empty) {
+        activeDec = dec1;
+    } else if (!raw0Empty && !raw1Empty) {
+        uint8_t seq0 = dec0[9];
+        uint8_t seq1 = dec1[9];
         if ((int8_t)(seq1 - seq0) > 0) {
             activeDec = dec1;
+        } else {
+            activeDec = dec0;
         }
+    }
+
+    if (!activeDec) {
+        level = 1;
+        money = 0;
+        return true;
     }
 
     uint32_t xp = (uint32_t) activeDec[0] | ((uint32_t) activeDec[1] << 8) | ((uint32_t) activeDec[2] << 16);
     money       = (uint32_t) activeDec[3] | ((uint32_t) activeDec[4] << 8);
 
-    if (money > 65000) money = 65000;
+    if (money > 65000) money = 0;
 
     static const uint32_t XP_THRESHOLDS[20] = {
         0, 1000, 2200, 3800, 6000, 9000, 13000, 18200, 24800, 33000,
@@ -1389,7 +1415,7 @@ bool SkylanderPortal::GetSkylanderStats(uint8_t uiSlot, uint32_t &level, uint32_
         }
     }
 
-    if (level > 20) level = 20;
+    if (level > 20 || level < 1) level = 1;
 
     return true;
 }
