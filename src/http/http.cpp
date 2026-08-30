@@ -22,8 +22,15 @@
 }
 
 void TCPClientStream::send(const void *what, size_t size) {
-    if (::send(mSocket, what, size, MSG_NOSIGNAL) < 0)
-        throw std::runtime_error("TCP send failed");
+    const char *ptr = static_cast<const char *>(what);
+    size_t remaining = size;
+    while (remaining > 0) {
+        ssize_t sent = ::send(mSocket, ptr, remaining, MSG_NOSIGNAL);
+        if (sent <= 0)
+            throw std::runtime_error("TCP send failed");
+        ptr += sent;
+        remaining -= static_cast<size_t>(sent);
+    }
 }
 
 size_t TCPClientStream::receive(void *target, size_t max) {

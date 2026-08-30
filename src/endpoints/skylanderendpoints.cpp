@@ -26,6 +26,214 @@ static std::string toLowerString(std::string s) {
     return s;
 }
 
+static HttpResponse handleGetStatus(const HttpRequest &req) {
+    miniJson::Json::_object ret;
+    ret["success"] = true;
+    ret["running"] = true;
+    ret["message"] = "Connected to Dolphin Portal";
+
+    miniJson::Json::_array slots;
+    for (uint8_t i = 0; i < MAX_SKYLANDERS; i++) {
+        miniJson::Json::_object slotObj;
+        bool occupied     = g_skyportal.IsSlotOccupied(i);
+        int8_t portalSlot = g_skyportal.GetPortalSlotFromUISlot(i);
+
+        slotObj["slot"]       = (double) i;
+        slotObj["portalSlot"] = (double) portalSlot;
+        slotObj["occupied"]   = occupied;
+
+        if (occupied) {
+            std::string name       = g_skyportal.GetSkylanderFromUISlot(i);
+            const auto idvar       = g_skyportal.GetSkylanderIdFromUISlot(i);
+            slotObj["name"]        = name;
+            slotObj["id"]          = (double) idvar.first;
+            slotObj["variant"]     = (double) idvar.second;
+            slotObj["level"]       = (double) 1;
+            slotObj["money"]       = (double) 0;
+        }
+
+        slots.push_back(slotObj);
+    }
+    ret["slots"] = slots;
+    return HttpResponse{200, ret};
+}
+
+static HttpResponse handleLoad(const HttpRequest &req) {
+    miniJson::Json::_object res;
+    auto body = req.json();
+
+    if (!body.isObject()) {
+        res["success"] = false;
+        res["message"] = "Invalid request body";
+        return HttpResponse{400, res};
+    }
+    auto loadRequest = body.toObject();
+
+    // Ranura (por defecto 0)
+    uint8_t slot = 0;
+    if (loadRequest.count("slot") && loadRequest["slot"].isNumber()) {
+        double s = loadRequest["slot"].toDouble();
+        if (s >= 0 && s < MAX_SKYLANDERS) {
+            slot = (uint8_t) s;
+        } else {
+            res["success"] = false;
+            res["message"] = "Invalid slot index";
+            return HttpResponse{400, res};
+        }
+    }
+
+    ensureSkylandersDirectory();
+
+    std::string filePath   = "";
+    std::string figureName = "";
+
+    // Opción A: Por ruta directa de archivo
+    if (loadRequest.count("path") && loadRequest["path"].isString()) {
+        filePath = loadRequest["path"].toString();
+        if (!filePath.starts_with("/vol/")) {
+            filePath = "/vol/external01/wiiu/re_nsyshid/" + filePath;
+        }
+    }
+    // Opción B: Por ID y Variante
+    else if (loadRequest.count("id") && loadRequest["id"].isNumber()) {
+        uint16_t id  = (uint16_t) loadRequest["id"].toDouble();
+        uint16_t var = 0;
+        if (loadRequest.count("variant") && loadRequest["variant"].isNumber()) {
+            var = (uint16_t) loadRequest["variant"].toDouble();
+        }
+        figureName           = g_skyportal.FindSkylander(id, var);
+        std::string safeName = sanitizeFileName(figureName);
+        filePath             = "/vol/external01/wiiu/re_nsyshid/Skylanders/" + safeName + ".sky";
+
+        struct stat st;
+        if (stat(filePath.c_str(), &st) != 0) {
+            g_skyportal.CreateSkylander(filePath, id, var);
+        }
+    }
+    // Opción C: Por Nombre
+    else if (loadRequest.count("name") && loadRequest["name"].isString()) {
+        std::string targetName = loadRequest["name"].toString();
+        uint16_t foundId = 0xFFFF, foundVar = 0;
+        bool matched = false;
+
+        auto skylanders = SkylanderPortal::GetListSkylanders();
+        // Coincidencia exacta
+        for (const auto &[idvar, name] : skylanders) {
+            if (targetName == name) {
+                foundId    = idvar.first;
+                foundVar   = idvar.second;
+                matched    = true;
+                figureName = name;
+                break;
+            }
+        }
+        // Coincidencia sin distinguir mayúsculas/minúsculas
+        if (!matched) {
+            std::string lowerTarget = toLowerString(targetName);
+            for (const auto &[idvar, name] : skylanders) {
+                if (toLowerString(name) == lowerTarget) {
+                    foundId    = idvar.first;
+                    foundVar   = idvar.second;
+                    matched    = true;
+                    figureName = name;
+                    break;
+                }
+            }
+        }
+
+        if (!matched) {
+            res["success"] = false;
+            res["message"] = "Figure not found in catalog";
+            return HttpResponse{404, res};
+        }
+
+        std::string safeName = sanitizeFileName(figureName);
+        filePath             = "/vol/external01/wiiu/re_nsyshid/Skylanders/" + safeName + ".sky";
+
+        struct stat st;
+        if (stat(filePath.c_str(), &st) != 0) {
+            g_skyportal.CreateSkylander(filePath, foundId, foundVar);
+        }
+    } else {
+        res["success"] = false;
+        res["message"] = "Missing name, id, or path parameter";
+        return HttpResponse{400, res};
+    }
+
+    // Cargar archivo en la ranura del portal
+    std::array<uint8_t, 0x10 * 0x40> fileData;
+    int ret_code = FSUtils::ReadFromFile(filePath.c_str(), fileData.data(), fileData.size());
+    if (ret_code == (int) fileData.size()) {
+        if (!g_skyportal.LoadSkylander(fileData.data(), filePath, slot)) {
+            res["success"] = false;
+            res["message"] = "Failed to load figure into portal";
+            return HttpResponse{500, res};
+        }
+
+        if (figureName.empty()) {
+            figureName = g_skyportal.GetSkylanderFromUISlot(slot);
+        }
+        int8_t portalSlot = g_skyportal.GetPortalSlotFromUISlot(slot);
+
+        res["success"]    = true;
+        res["slot"]       = (double) slot;
+        res["portalSlot"] = (double) portalSlot;
+        res["name"]       = figureName;
+        res["message"]    = "Skylander " + figureName + " loaded successfully into slot " + std::to_string(slot);
+        return HttpResponse{200, res};
+    } else {
+        res["success"] = false;
+        res["message"] = "Failed to read figure file from SD";
+        return HttpResponse{400, res};
+    }
+}
+
+static HttpResponse handleRemove(const HttpRequest &req) {
+    miniJson::Json::_object res;
+    auto body = req.json();
+
+    if (!body.isObject()) {
+        res["success"] = false;
+        res["message"] = "Invalid request body";
+        return HttpResponse{400, res};
+    }
+    auto removeRequest = body.toObject();
+    uint8_t slot       = 0;
+    if (removeRequest.count("slot") && removeRequest["slot"].isNumber()) {
+        slot = (uint8_t) removeRequest["slot"].toDouble();
+    }
+
+    if (slot >= MAX_SKYLANDERS) {
+        res["success"] = false;
+        res["message"] = "Invalid slot index";
+        return HttpResponse{400, res};
+    }
+
+    g_skyportal.RemoveSkylander(slot);
+    res["success"] = true;
+    res["slot"]    = (double) slot;
+    res["message"] = "Slot " + std::to_string(slot) + " cleared";
+    return HttpResponse{200, res};
+}
+
+static HttpResponse handleClear(const HttpRequest &req) {
+    for (uint8_t i = 0; i < MAX_SKYLANDERS; i++) {
+        g_skyportal.RemoveSkylander(i);
+    }
+    miniJson::Json::_object res;
+    res["success"] = true;
+    res["message"] = "Portal completely cleared";
+    return HttpResponse{200, res};
+}
+
+static HttpResponse corsOptionsHandler(const HttpRequest &req) {
+    HttpResponse res(200);
+    res["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS";
+    res["Access-Control-Allow-Headers"] = "Content-Type, Accept";
+    res["Access-Control-Max-Age"]       = "86400";
+    return res;
+}
+
 void registerSkylanderEndpoints(HttpServer &server) {
 
     // ==========================================
@@ -40,49 +248,21 @@ void registerSkylanderEndpoints(HttpServer &server) {
     });
 
     // ==========================================
-    // 📡 Dolphin Skylanders REST API: /api/status
+    // 📡 Status Endpoints (/api/skylanders/status & /api/status)
     // ==========================================
+    server.when("/api/skylanders/status")
+            ->options(corsOptionsHandler)
+            ->requested(handleGetStatus);
+
     server.when("/api/status")
-            ->options([](const HttpRequest &req) {
-                HttpResponse res(200);
-                res["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS";
-                res["Access-Control-Allow-Headers"] = "Content-Type";
-                res["Access-Control-Max-Age"]       = "86400";
-                return res;
-            })
-            ->requested([](const HttpRequest &req) {
-                miniJson::Json::_object ret;
-                ret["success"] = true;
-                ret["running"] = true;
-
-                miniJson::Json::_array slots;
-                for (uint8_t i = 0; i < MAX_SKYLANDERS; i++) {
-                    miniJson::Json::_object slotObj;
-                    bool occupied     = g_skyportal.IsSlotOccupied(i);
-                    int8_t portalSlot = g_skyportal.GetPortalSlotFromUISlot(i);
-                    std::string name  = occupied ? g_skyportal.GetSkylanderFromUISlot(i) : ("Slot " + std::to_string(i + 1));
-
-                    slotObj["slot"]       = (double) i;
-                    slotObj["portalSlot"] = (double) portalSlot;
-                    slotObj["name"]       = name;
-                    slotObj["occupied"]   = occupied;
-                    slots.push_back(slotObj);
-                }
-                ret["slots"] = slots;
-                return HttpResponse{200, ret};
-            });
+            ->options(corsOptionsHandler)
+            ->requested(handleGetStatus);
 
     // ==========================================
-    // 📖 Dolphin Skylanders REST API: /api/skylanders
+    // 📖 Catalog Endpoint (/api/skylanders)
     // ==========================================
     server.when("/api/skylanders")
-            ->options([](const HttpRequest &req) {
-                HttpResponse res(200);
-                res["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS";
-                res["Access-Control-Allow-Headers"] = "Content-Type";
-                res["Access-Control-Max-Age"]       = "86400";
-                return res;
-            })
+            ->options(corsOptionsHandler)
             ->requested([](const HttpRequest &req) {
                 miniJson::Json::_array list;
                 for (const auto &[idvar, name] : SkylanderPortal::GetListSkylanders()) {
@@ -90,209 +270,44 @@ void registerSkylanderEndpoints(HttpServer &server) {
                     item["id"]      = (double) idvar.first;
                     item["variant"] = (double) idvar.second;
                     item["name"]    = std::string(name);
+                    item["type"]    = "skylander";
                     list.push_back(item);
                 }
                 return HttpResponse{200, list};
             });
 
     // ==========================================
-    // ⚡ Dolphin Skylanders REST API: /api/load
+    // ⚡ Load Endpoints (/api/skylanders/load & /api/load)
     // ==========================================
+    server.when("/api/skylanders/load")
+            ->options(corsOptionsHandler)
+            ->posted(handleLoad);
+
     server.when("/api/load")
-            ->options([](const HttpRequest &req) {
-                HttpResponse res(200);
-                res["Access-Control-Allow-Methods"] = "POST, OPTIONS";
-                res["Access-Control-Allow-Headers"] = "Content-Type";
-                res["Access-Control-Max-Age"]       = "86400";
-                return res;
-            })
-            ->posted([](const HttpRequest &req) {
-                miniJson::Json::_object res;
-                auto body = req.json();
-
-                if (!body.isObject()) {
-                    res["success"] = false;
-                    res["error"]   = "INVALID_BODY";
-                    return HttpResponse{400, res};
-                }
-                auto loadRequest = body.toObject();
-
-                // Ranura (por defecto 0)
-                uint8_t slot = 0;
-                if (loadRequest.count("slot") && loadRequest["slot"].isNumber()) {
-                    double s = loadRequest["slot"].toDouble();
-                    if (s >= 0 && s < MAX_SKYLANDERS) {
-                        slot = (uint8_t) s;
-                    } else {
-                        res["success"] = false;
-                        res["error"]   = "INVALID_SLOT";
-                        return HttpResponse{400, res};
-                    }
-                }
-
-                ensureSkylandersDirectory();
-
-                std::string filePath   = "";
-                std::string figureName = "";
-
-                // Opción A: Por ruta directa de archivo
-                if (loadRequest.count("path") && loadRequest["path"].isString()) {
-                    filePath = loadRequest["path"].toString();
-                    if (!filePath.starts_with("/vol/")) {
-                        filePath = "/vol/external01/wiiu/re_nsyshid/" + filePath;
-                    }
-                }
-                // Opción B: Por ID y Variante
-                else if (loadRequest.count("id") && loadRequest["id"].isNumber()) {
-                    uint16_t id  = (uint16_t) loadRequest["id"].toDouble();
-                    uint16_t var = 0;
-                    if (loadRequest.count("variant") && loadRequest["variant"].isNumber()) {
-                        var = (uint16_t) loadRequest["variant"].toDouble();
-                    }
-                    figureName           = g_skyportal.FindSkylander(id, var);
-                    std::string safeName = sanitizeFileName(figureName);
-                    filePath             = "/vol/external01/wiiu/re_nsyshid/Skylanders/" + safeName + ".sky";
-
-                    struct stat st;
-                    if (stat(filePath.c_str(), &st) != 0) {
-                        g_skyportal.CreateSkylander(filePath, id, var);
-                    }
-                }
-                // Opción C: Por Nombre
-                else if (loadRequest.count("name") && loadRequest["name"].isString()) {
-                    std::string targetName = loadRequest["name"].toString();
-                    uint16_t foundId = 0xFFFF, foundVar = 0;
-                    bool matched = false;
-
-                    auto skylanders = SkylanderPortal::GetListSkylanders();
-                    // Coincidencia exacta
-                    for (const auto &[idvar, name] : skylanders) {
-                        if (targetName == name) {
-                            foundId    = idvar.first;
-                            foundVar   = idvar.second;
-                            matched    = true;
-                            figureName = name;
-                            break;
-                        }
-                    }
-                    // Coincidencia sin distinguir mayúsculas/minúsculas
-                    if (!matched) {
-                        std::string lowerTarget = toLowerString(targetName);
-                        for (const auto &[idvar, name] : skylanders) {
-                            if (toLowerString(name) == lowerTarget) {
-                                foundId    = idvar.first;
-                                foundVar   = idvar.second;
-                                matched    = true;
-                                figureName = name;
-                                break;
-                            }
-                        }
-                    }
-
-                    if (!matched) {
-                        res["success"] = false;
-                        res["error"]   = "SKYLANDER_NAME_NOT_FOUND";
-                        return HttpResponse{404, res};
-                    }
-
-                    std::string safeName = sanitizeFileName(figureName);
-                    filePath             = "/vol/external01/wiiu/re_nsyshid/Skylanders/" + safeName + ".sky";
-
-                    struct stat st;
-                    if (stat(filePath.c_str(), &st) != 0) {
-                        g_skyportal.CreateSkylander(filePath, foundId, foundVar);
-                    }
-                } else {
-                    res["success"] = false;
-                    res["error"]   = "MISSING_NAME_ID_OR_PATH";
-                    return HttpResponse{400, res};
-                }
-
-                // Cargar archivo en la ranura del portal
-                std::array<uint8_t, 0x10 * 0x40> fileData;
-                int ret_code = FSUtils::ReadFromFile(filePath.c_str(), fileData.data(), fileData.size());
-                if (ret_code == (int) fileData.size()) {
-                    if (!g_skyportal.LoadSkylander(fileData.data(), filePath, slot)) {
-                        res["success"] = false;
-                        res["error"]   = "FAILED_TO_LOAD_SKYLANDER";
-                        return HttpResponse{500, res};
-                    }
-
-                    if (figureName.empty()) {
-                        figureName = g_skyportal.GetSkylanderFromUISlot(slot);
-                    }
-                    int8_t portalSlot = g_skyportal.GetPortalSlotFromUISlot(slot);
-
-                    res["success"]    = true;
-                    res["slot"]       = (double) slot;
-                    res["portalSlot"] = (double) portalSlot;
-                    res["name"]       = figureName;
-                    return HttpResponse{200, res};
-                } else {
-                    res["success"] = false;
-                    res["error"]   = "FAILED_TO_READ_FILE";
-                    return HttpResponse{400, res};
-                }
-            });
+            ->options(corsOptionsHandler)
+            ->posted(handleLoad);
 
     // ==========================================
-    // 🗑️ Dolphin Skylanders REST API: /api/remove
+    // 🗑️ Remove Endpoints (/api/skylanders/remove & /api/remove)
     // ==========================================
+    server.when("/api/skylanders/remove")
+            ->options(corsOptionsHandler)
+            ->posted(handleRemove);
+
     server.when("/api/remove")
-            ->options([](const HttpRequest &req) {
-                HttpResponse res(200);
-                res["Access-Control-Allow-Methods"] = "POST, OPTIONS";
-                res["Access-Control-Allow-Headers"] = "Content-Type";
-                res["Access-Control-Max-Age"]       = "86400";
-                return res;
-            })
-            ->posted([](const HttpRequest &req) {
-                miniJson::Json::_object res;
-                auto body = req.json();
-
-                if (!body.isObject()) {
-                    res["success"] = false;
-                    res["error"]   = "INVALID_BODY";
-                    return HttpResponse{400, res};
-                }
-                auto removeRequest = body.toObject();
-                uint8_t slot       = 0;
-                if (removeRequest.count("slot") && removeRequest["slot"].isNumber()) {
-                    slot = (uint8_t) removeRequest["slot"].toDouble();
-                }
-
-                if (slot >= MAX_SKYLANDERS) {
-                    res["success"] = false;
-                    res["error"]   = "INVALID_SLOT";
-                    return HttpResponse{400, res};
-                }
-
-                g_skyportal.RemoveSkylander(slot);
-                res["success"] = true;
-                res["slot"]    = (double) slot;
-                return HttpResponse{200, res};
-            });
+            ->options(corsOptionsHandler)
+            ->posted(handleRemove);
 
     // ==========================================
-    // 🧹 Dolphin Skylanders REST API: /api/clear
+    // 🧹 Clear Endpoints (/api/skylanders/clear & /api/clear)
     // ==========================================
+    server.when("/api/skylanders/clear")
+            ->options(corsOptionsHandler)
+            ->posted(handleClear);
+
     server.when("/api/clear")
-            ->options([](const HttpRequest &req) {
-                HttpResponse res(200);
-                res["Access-Control-Allow-Methods"] = "POST, OPTIONS";
-                res["Access-Control-Allow-Headers"] = "Content-Type";
-                res["Access-Control-Max-Age"]       = "86400";
-                return res;
-            })
-            ->posted([](const HttpRequest &req) {
-                for (uint8_t i = 0; i < MAX_SKYLANDERS; i++) {
-                    g_skyportal.RemoveSkylander(i);
-                }
-                miniJson::Json::_object res;
-                res["success"] = true;
-                res["message"] = "All figures removed";
-                return HttpResponse{200, res};
-            });
+            ->options(corsOptionsHandler)
+            ->posted(handleClear);
 
     // ==========================================
     // 📦 re_nsyshid Legacy / Dashboard Endpoints
@@ -312,13 +327,7 @@ void registerSkylanderEndpoints(HttpServer &server) {
     });
 
     server.when("/device/skylander/remove")
-            ->options([](const HttpRequest &req) {
-                HttpResponse res(200);
-                res["Access-Control-Allow-Methods"] = "POST, OPTIONS";
-                res["Access-Control-Allow-Headers"] = "Content-Type";
-                res["Access-Control-Max-Age"]       = "86400";
-                return res;
-            })
+            ->options(corsOptionsHandler)
             ->posted([](const HttpRequest &req) {
                 miniJson::Json::_object res;
                 auto body = req.json();
@@ -348,13 +357,7 @@ void registerSkylanderEndpoints(HttpServer &server) {
             });
 
     server.when("/device/skylander/load")
-            ->options([](const HttpRequest &req) {
-                HttpResponse res(200);
-                res["Access-Control-Allow-Methods"] = "POST, OPTIONS";
-                res["Access-Control-Allow-Headers"] = "Content-Type";
-                res["Access-Control-Max-Age"]       = "86400";
-                return res;
-            })
+            ->options(corsOptionsHandler)
             ->posted([](const HttpRequest &req) {
                 miniJson::Json::_object res;
                 auto body = req.json();
@@ -391,13 +394,7 @@ void registerSkylanderEndpoints(HttpServer &server) {
             });
 
     server.when("/device/skylander/create")
-            ->options([](const HttpRequest &req) {
-                HttpResponse res(200);
-                res["Access-Control-Allow-Methods"] = "POST, OPTIONS";
-                res["Access-Control-Allow-Headers"] = "Content-Type";
-                res["Access-Control-Max-Age"]       = "86400";
-                return res;
-            })
+            ->options(corsOptionsHandler)
             ->posted([](const HttpRequest &req) {
                 miniJson::Json::_object res;
                 auto body = req.json();
