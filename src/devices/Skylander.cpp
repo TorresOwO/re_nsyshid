@@ -1248,7 +1248,7 @@ std::vector<SkylanderPortal::SkylanderDetails> SkylanderPortal::GetAllSkylanders
         else if (folder >= SSF_SWAPPERS && folder <= SSF_SWAP_UNDEAD) det.type = "swapper";
         else if (folder >= STT_TRAPS && folder <= STT_TRAP_KAOS) det.type = "trap";
         else if (folder == STT_MINIS || folder == SSA_SIDEKICK || folder == SG_SIDEKICK) det.type = "mini";
-        else if (folder == SSA_MAGIC_ITEM || folder == SG_MAGIC_ITEM || folder == SSF_MAGIC_ITEM || folder == STT_MAGIC_ITEM) det.type = "magic-item";
+        else if (folder == SSA_MAGIC_ITEM || folder == SG_MAGIC_ITEM || folder == SSF_MAGIC_ITEM || folder == STT_MAGIC_ITEM) det.type = "item";
         else if (folder >= SSC_VEHICLES && folder <= SSC_VEHICLE_SEA) det.type = "vehicle";
         else if (folder == SSC_TROPHIES) det.type = "trophy";
         else {
@@ -1262,7 +1262,7 @@ std::vector<SkylanderPortal::SkylanderDetails> SkylanderPortal::GetAllSkylanders
             } else if (det.id >= 210 && det.id <= 220) {
                 det.type = "trap";
             } else if ((det.id >= 200 && det.id <= 209) || (det.id >= 300 && det.id <= 308) || (det.id >= 3200 && det.id <= 3204) || (det.id >= 3300 && det.id <= 3303)) {
-                det.type = "magic-item";
+                det.type = "item";
             } else if (det.id >= 3220 && det.id <= 3241) {
                 det.type = "vehicle";
             } else if (det.id >= 3500 && det.id <= 3503) {
