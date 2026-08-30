@@ -21,8 +21,13 @@ Includes some code repurposed from the [re_nfpii](https://github.com/GaryOderNic
 - Open the plugin configuration menu with L + Down + SELECT.
 - Enable Emulation, and choose an Emulated Device.
 - Choose a Figure for your chosen device, for example enter Skylander Manager if you chose the Skylander Portal, and choose a Skylander to load in a specific slot.
-- Figures can be quickly removed from slots by hovering over the currently loaded slot and pressing the X button
--Optionally, you can enable the module to accept incoming HTTP requests, by setting Enable Server as true in the first page of the plugin. This allows requests to be made so that the plugin menu doesn't need to be opened every time you want to Load/Remove/Create/Move a figure. Details of this can be found [here](webpage/README.md)
+- Figures can be quickly removed from slots by hovering over the currently loaded slot and pressing the X button.
+- The plugin includes a built-in HTTP server on port `9090` (enabled by default). It provides a complete REST API for web applications (such as Skylanders Control, Dolphin tools, and storage managers) to load, remove, import, export, and inspect Skylanders in real-time. Full API documentation is available in [API_DOCUMENTATION.md](API_DOCUMENTATION.md).
+
+## REST API & Web Dashboard
+
+- **Web Dashboard:** Open `http://<WII_U_IP>:9090/` in any browser to access the live Portal manager.
+- **REST API Reference:** See [API_DOCUMENTATION.md](API_DOCUMENTATION.md) for full endpoints, parameters, and JSON schemas.
 
 ## Planned features
 
