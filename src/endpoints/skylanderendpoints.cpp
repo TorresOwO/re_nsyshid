@@ -338,16 +338,28 @@ static HttpResponse handleDownload(const HttpRequest &req) {
         slot = std::atoi(slotStr.c_str());
     }
 
+    bool asJson = (query.find("format=json") != std::string::npos) || (req["Accept"].find("application/json") != std::string::npos);
+
     if (slot >= 0 && slot < MAX_SKYLANDERS) {
         std::vector<uint8_t> data;
         std::string name, path;
         if (g_skyportal.GetSkylanderRawData((uint8_t) slot, data, name, path) && !data.empty()) {
             std::string safeName = sanitizeFileName(name.empty() ? ("Slot" + std::to_string(slot)) : name);
-            std::string body((char *) data.data(), data.size());
-            HttpResponse resp{200, "application/octet-stream", body};
-            resp["Content-Disposition"]        = "attachment; filename=\"" + safeName + ".sky\"";
-            resp["Access-Control-Allow-Origin"] = "*";
-            return resp;
+            if (asJson) {
+                miniJson::Json::_object res;
+                res["success"]  = true;
+                res["slot"]     = (double) slot;
+                res["name"]     = name;
+                res["filename"] = safeName + ".sky";
+                res["data"]     = base64_encode_bytes(data.data(), data.size());
+                return HttpResponse{200, res};
+            } else {
+                std::string body((char *) data.data(), data.size());
+                HttpResponse resp{200, "application/octet-stream", body};
+                resp["Content-Disposition"]        = "attachment; filename=\"" + safeName + ".sky\"";
+                resp["Access-Control-Allow-Origin"] = "*";
+                return resp;
+            }
         } else {
             miniJson::Json::_object res;
             res["success"] = false;
@@ -391,11 +403,19 @@ static HttpResponse handleDownload(const HttpRequest &req) {
         std::array<uint8_t, 1024> fileData;
         int readBytes = FSUtils::ReadFromFile(fullPath.c_str(), fileData.data(), fileData.size());
         if (readBytes > 0) {
-            std::string body((char *) fileData.data(), readBytes);
-            HttpResponse resp{200, "application/octet-stream", body};
-            resp["Content-Disposition"]        = "attachment; filename=\"" + sanitizeFileName(fileParam) + "\"";
-            resp["Access-Control-Allow-Origin"] = "*";
-            return resp;
+            if (asJson) {
+                miniJson::Json::_object res;
+                res["success"]  = true;
+                res["filename"] = sanitizeFileName(fileParam);
+                res["data"]     = base64_encode_bytes(fileData.data(), readBytes);
+                return HttpResponse{200, res};
+            } else {
+                std::string body((char *) fileData.data(), readBytes);
+                HttpResponse resp{200, "application/octet-stream", body};
+                resp["Content-Disposition"]        = "attachment; filename=\"" + sanitizeFileName(fileParam) + "\"";
+                resp["Access-Control-Allow-Origin"] = "*";
+                return resp;
+            }
         } else {
             miniJson::Json::_object res;
             res["success"] = false;
@@ -429,7 +449,7 @@ static HttpResponse handleUpload(const HttpRequest &req) {
         if (obj.count("slot") && obj["slot"].isNumber()) {
             targetSlot = (int) obj["slot"].toDouble();
         }
-        if (obj.count("load") && obj["load"].isBoolean()) {
+        if (obj.count("load") && obj["load"].isBool()) {
             shouldLoad = obj["load"].toBool();
         } else if (targetSlot >= 0) {
             shouldLoad = true;
