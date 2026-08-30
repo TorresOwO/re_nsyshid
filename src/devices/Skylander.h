@@ -211,6 +211,7 @@ public:
     const std::pair<const uint16_t, const uint16_t> GetSkylanderIdFromUISlot(uint8_t uiSlot);
     bool IsSlotOccupied(uint8_t uiSlot);
     int8_t GetPortalSlotFromUISlot(uint8_t uiSlot);
+    bool GetSkylanderStats(uint8_t uiSlot, uint32_t &level, uint32_t &money);
 
 protected:
     std::mutex m_skyMutex;

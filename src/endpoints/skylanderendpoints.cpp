@@ -43,13 +43,16 @@ static HttpResponse handleGetStatus(const HttpRequest &req) {
         slotObj["occupied"]   = occupied;
 
         if (occupied) {
-            std::string name       = g_skyportal.GetSkylanderFromUISlot(i);
-            const auto idvar       = g_skyportal.GetSkylanderIdFromUISlot(i);
-            slotObj["name"]        = name;
-            slotObj["id"]          = (double) idvar.first;
-            slotObj["variant"]     = (double) idvar.second;
-            slotObj["level"]       = (double) 1;
-            slotObj["money"]       = (double) 0;
+            std::string name = g_skyportal.GetSkylanderFromUISlot(i);
+            const auto idvar = g_skyportal.GetSkylanderIdFromUISlot(i);
+            uint32_t level = 1, money = 0;
+            g_skyportal.GetSkylanderStats(i, level, money);
+
+            slotObj["name"]    = name;
+            slotObj["id"]      = (double) idvar.first;
+            slotObj["variant"] = (double) idvar.second;
+            slotObj["level"]   = (double) level;
+            slotObj["money"]   = (double) money;
         }
 
         slots.push_back(slotObj);

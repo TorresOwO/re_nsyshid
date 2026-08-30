@@ -1,6 +1,8 @@
 #include "Skylander.h"
 #include "utils/FSUtils.hpp"
 #include "utils/logger.h"
+#include "utils/aes.h"
+#include "utils/md5.h"
 
 #include <algorithm>
 #include <array>
@@ -1316,6 +1318,80 @@ bool SkylanderPortal::IsSlotOccupied(uint8_t uiSlot) {
 int8_t SkylanderPortal::GetPortalSlotFromUISlot(uint8_t uiSlot) {
     if (uiSlot >= MAX_SKYLANDERS) return -1;
     return m_skylanderUIPositions[uiSlot] ? (int8_t) m_skylanderUIPositions[uiSlot].value() : -1;
+}
+
+bool SkylanderPortal::GetSkylanderStats(uint8_t uiSlot, uint32_t &level, uint32_t &money) {
+    level = 1;
+    money = 0;
+
+    if (uiSlot >= MAX_SKYLANDERS || !m_skylanderUIPositions[uiSlot]) {
+        return false;
+    }
+
+    std::lock_guard lock(m_skyMutex);
+    const auto &thesky      = m_skylanders[m_skylanderUIPositions[uiSlot].value()];
+    const uint8_t *tagData  = thesky.data.data();
+
+    // Helper to decrypt block (0x08 for Area 0, 0x24 for Area 1)
+    auto decryptBlock = [&](uint8_t blockNum, uint8_t *outDecrypted) {
+        uint8_t md5_input[0x56];
+        memcpy(md5_input, tagData, 0x20); // First 32 bytes (blocks 0 & 1)
+        md5_input[0x20] = blockNum;
+        memcpy(md5_input + 0x21, " Copyright (C) 2010 Activision. All Rights Reserved. ", 53);
+
+        uint8_t key[16];
+        md5_hash(md5_input, 0x56, key);
+
+        struct AES_ctx ctx;
+        AES_init_ctx(&ctx, key);
+
+        memcpy(outDecrypted, tagData + (blockNum * 16), 16);
+        AES_ECB_decrypt(&ctx, outDecrypted);
+    };
+
+    uint8_t dec0[16], dec1[16];
+    decryptBlock(0x08, dec0);
+    decryptBlock(0x24, dec1);
+
+    uint8_t seq0 = dec0[9];
+    uint8_t seq1 = dec1[9];
+
+    // Determine active save area by sequence counter
+    const uint8_t *activeDec = dec0;
+    if (seq0 == 0 && seq1 == 0) {
+        bool hasData0 = false, hasData1 = false;
+        for (int i = 0; i < 16; i++) {
+            if (dec0[i]) hasData0 = true;
+            if (dec1[i]) hasData1 = true;
+        }
+        if (!hasData0 && hasData1) activeDec = dec1;
+    } else {
+        if ((int8_t)(seq1 - seq0) > 0) {
+            activeDec = dec1;
+        }
+    }
+
+    uint32_t xp = (uint32_t) activeDec[0] | ((uint32_t) activeDec[1] << 8) | ((uint32_t) activeDec[2] << 16);
+    money       = (uint32_t) activeDec[3] | ((uint32_t) activeDec[4] << 8);
+
+    if (money > 65000) money = 65000;
+
+    static const uint32_t XP_THRESHOLDS[20] = {
+        0, 1000, 2200, 3800, 6000, 9000, 13000, 18200, 24800, 33000,
+        43000, 55000, 69000, 85000, 103000, 123000, 145000, 169000, 195000, 223000
+    };
+
+    level = 1;
+    for (int l = 19; l >= 0; l--) {
+        if (xp >= XP_THRESHOLDS[l]) {
+            level = (uint32_t)(l + 1);
+            break;
+        }
+    }
+
+    if (level > 20) level = 20;
+
+    return true;
 }
 
 void SkylanderPortal::Skylander::Save() {
