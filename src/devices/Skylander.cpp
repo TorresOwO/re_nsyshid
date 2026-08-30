@@ -1420,6 +1420,22 @@ bool SkylanderPortal::GetSkylanderStats(uint8_t uiSlot, uint32_t &level, uint32_
     return true;
 }
 
+bool SkylanderPortal::GetSkylanderRawData(uint8_t uiSlot, std::vector<uint8_t> &outData, std::string &outName, std::string &outFilePath) {
+    if (uiSlot >= MAX_SKYLANDERS || !m_skylanderUIPositions[uiSlot]) {
+        return false;
+    }
+
+    std::lock_guard lock(m_skyMutex);
+    auto &thesky = m_skylanders[m_skylanderUIPositions[uiSlot].value()];
+    thesky.Save(); // Save any pending updates from RAM to SD
+    outData.assign(thesky.data.begin(), thesky.data.end());
+    outFilePath = thesky.filePath;
+    uint16_t skyId  = uint16_t(thesky.data[0x11]) << 8 | uint16_t(thesky.data[0x10]);
+    uint16_t skyVar = uint16_t(thesky.data[0x1D]) << 8 | uint16_t(thesky.data[0x1C]);
+    outName         = FindSkylander(skyId, skyVar);
+    return true;
+}
+
 void SkylanderPortal::Skylander::Save() {
     if (filePath.empty()) {
         DEBUG_FUNCTION_LINE("No Skylander file present to save");

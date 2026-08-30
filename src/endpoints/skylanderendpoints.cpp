@@ -229,10 +229,285 @@ static HttpResponse handleClear(const HttpRequest &req) {
     return HttpResponse{200, res};
 }
 
+static const std::string BASE64_CHARS =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        "abcdefghijklmnopqrstuvwxyz"
+        "0123456789+/";
+
+static std::string base64_encode_bytes(const uint8_t *bytes_to_encode, size_t in_len) {
+    std::string ret;
+    int i = 0, j = 0;
+    uint8_t char_array_3[3], char_array_4[4];
+
+    while (in_len--) {
+        char_array_3[i++] = *(bytes_to_encode++);
+        if (i == 3) {
+            char_array_4[0] = (char_array_3[0] & 0xfc) >> 2;
+            char_array_4[1] = ((char_array_3[0] & 0x03) << 4) + ((char_array_3[1] & 0xf0) >> 4);
+            char_array_4[2] = ((char_array_3[1] & 0x0f) << 2) + ((char_array_3[2] & 0xc0) >> 6);
+            char_array_4[3] = char_array_3[2] & 0x3f;
+
+            for (i = 0; (i < 4); i++)
+                ret += BASE64_CHARS[char_array_4[i]];
+            i = 0;
+        }
+    }
+
+    if (i) {
+        for (j = i; j < 3; j++)
+            char_array_3[j] = '\0';
+
+        char_array_4[0] = (char_array_3[0] & 0xfc) >> 2;
+        char_array_4[1] = ((char_array_3[0] & 0x03) << 4) + ((char_array_3[1] & 0xf0) >> 4);
+        char_array_4[2] = ((char_array_3[1] & 0x0f) << 2) + ((char_array_3[2] & 0xc0) >> 6);
+
+        for (j = 0; (j < i + 1); j++)
+            ret += BASE64_CHARS[char_array_4[j]];
+
+        while ((i++ < 3))
+            ret += '=';
+    }
+
+    return ret;
+}
+
+static std::vector<uint8_t> base64_decode_bytes(const std::string &encoded_string) {
+    size_t in_len = encoded_string.size();
+    int i = 0, j = 0, in_ = 0;
+    uint8_t char_array_4[4], char_array_3[3];
+    std::vector<uint8_t> ret;
+
+    while (in_len-- && (encoded_string[in_] != '=') && (std::isalnum(encoded_string[in_]) || (encoded_string[in_] == '+') || (encoded_string[in_] == '/'))) {
+        char_array_4[i++] = encoded_string[in_];
+        in_++;
+        if (i == 4) {
+            for (i = 0; i < 4; i++)
+                char_array_4[i] = (uint8_t) BASE64_CHARS.find(char_array_4[i]);
+
+            char_array_3[0] = (char_array_4[0] << 2) + ((char_array_4[1] & 0x30) >> 4);
+            char_array_3[1] = ((char_array_4[1] & 0xf) << 4) + ((char_array_4[2] & 0x3c) >> 2);
+            char_array_3[2] = ((char_array_4[2] & 0x3) << 6) + char_array_4[3];
+
+            for (i = 0; (i < 3); i++)
+                ret.push_back(char_array_3[i]);
+            i = 0;
+        }
+    }
+
+    if (i) {
+        for (j = 0; j < i; j++)
+            char_array_4[j] = (uint8_t) BASE64_CHARS.find(char_array_4[j]);
+
+        char_array_3[0] = (char_array_4[0] << 2) + ((char_array_4[1] & 0x30) >> 4);
+        char_array_3[1] = ((char_array_4[1] & 0xf) << 4) + ((char_array_4[2] & 0x3c) >> 2);
+
+        for (j = 0; (j < i - 1); j++)
+            ret.push_back(char_array_3[j]);
+    }
+
+    return ret;
+}
+
+static std::string decodeUrlString(const std::string &urlEncoded) {
+    std::string res;
+    for (size_t i = 0; i < urlEncoded.length(); ++i) {
+        if (urlEncoded[i] == '%' && i + 2 < urlEncoded.length()) {
+            std::string hex = urlEncoded.substr(i + 1, 2);
+            char ch = (char) std::strtol(hex.c_str(), nullptr, 16);
+            res += ch;
+            i += 2;
+        } else if (urlEncoded[i] == '+') {
+            res += ' ';
+        } else {
+            res += urlEncoded[i];
+        }
+    }
+    return res;
+}
+
+static HttpResponse handleDownload(const HttpRequest &req) {
+    std::string query = req.getQuery();
+
+    // 1. Check if slot query parameter is provided (e.g. ?slot=0)
+    int slot = -1;
+    size_t slotPos = query.find("slot=");
+    if (slotPos != std::string::npos) {
+        std::string slotStr = query.substr(slotPos + 5);
+        size_t amp = slotStr.find('&');
+        if (amp != std::string::npos) slotStr = slotStr.substr(0, amp);
+        slot = std::atoi(slotStr.c_str());
+    }
+
+    if (slot >= 0 && slot < MAX_SKYLANDERS) {
+        std::vector<uint8_t> data;
+        std::string name, path;
+        if (g_skyportal.GetSkylanderRawData((uint8_t) slot, data, name, path) && !data.empty()) {
+            std::string safeName = sanitizeFileName(name.empty() ? ("Slot" + std::to_string(slot)) : name);
+            std::string body((char *) data.data(), data.size());
+            HttpResponse resp{200, "application/octet-stream", body};
+            resp["Content-Disposition"]        = "attachment; filename=\"" + safeName + ".sky\"";
+            resp["Access-Control-Allow-Origin"] = "*";
+            return resp;
+        } else {
+            miniJson::Json::_object res;
+            res["success"] = false;
+            res["message"] = "No Skylander figure currently in slot " + std::to_string(slot);
+            return HttpResponse{404, res};
+        }
+    }
+
+    // 2. Check if filename / name / path parameter is provided
+    std::string fileParam;
+    size_t fnPos = query.find("filename=");
+    if (fnPos != std::string::npos) {
+        fileParam = query.substr(fnPos + 9);
+    } else {
+        size_t namePos = query.find("name=");
+        if (namePos != std::string::npos) {
+            fileParam = query.substr(namePos + 5);
+        } else {
+            size_t pathPos = query.find("path=");
+            if (pathPos != std::string::npos) {
+                fileParam = query.substr(pathPos + 5);
+            }
+        }
+    }
+
+    size_t amp = fileParam.find('&');
+    if (amp != std::string::npos) fileParam = fileParam.substr(0, amp);
+
+    if (!fileParam.empty()) {
+        fileParam = decodeUrlString(fileParam);
+        std::string fullPath;
+        if (fileParam.rfind("/vol/", 0) == 0) {
+            fullPath = fileParam;
+        } else {
+            if (fileParam.rfind(".sky") == std::string::npos && fileParam.rfind(".bin") == std::string::npos) {
+                fileParam += ".sky";
+            }
+            fullPath = "/vol/external01/wiiu/re_nsyshid/Skylanders/" + sanitizeFileName(fileParam);
+        }
+
+        std::array<uint8_t, 1024> fileData;
+        int readBytes = FSUtils::ReadFromFile(fullPath.c_str(), fileData.data(), fileData.size());
+        if (readBytes > 0) {
+            std::string body((char *) fileData.data(), readBytes);
+            HttpResponse resp{200, "application/octet-stream", body};
+            resp["Content-Disposition"]        = "attachment; filename=\"" + sanitizeFileName(fileParam) + "\"";
+            resp["Access-Control-Allow-Origin"] = "*";
+            return resp;
+        } else {
+            miniJson::Json::_object res;
+            res["success"] = false;
+            res["message"] = "File not found: " + fullPath;
+            return HttpResponse{404, res};
+        }
+    }
+
+    miniJson::Json::_object res;
+    res["success"] = false;
+    res["message"] = "Missing 'slot' or 'filename' query parameter";
+    return HttpResponse{400, res};
+}
+
+static HttpResponse handleUpload(const HttpRequest &req) {
+    ensureSkylandersDirectory();
+    miniJson::Json::_object res;
+
+    std::string filename = "uploaded_figure.sky";
+    std::vector<uint8_t> fileBytes;
+    int targetSlot = -1;
+    bool shouldLoad = false;
+
+    // 1. Check for JSON body
+    auto bodyJson = req.json();
+    if (bodyJson.isObject()) {
+        auto obj = bodyJson.toObject();
+        if (obj.count("filename") && obj["filename"].isString()) {
+            filename = obj["filename"].toString();
+        }
+        if (obj.count("slot") && obj["slot"].isNumber()) {
+            targetSlot = (int) obj["slot"].toDouble();
+        }
+        if (obj.count("load") && obj["load"].isBoolean()) {
+            shouldLoad = obj["load"].toBool();
+        } else if (targetSlot >= 0) {
+            shouldLoad = true;
+        }
+
+        if (obj.count("data") && obj["data"].isString()) {
+            std::string b64 = obj["data"].toString();
+            fileBytes       = base64_decode_bytes(b64);
+        }
+    }
+
+    // 2. Check for Raw binary body if no JSON data
+    if (fileBytes.empty() && !req.content().empty()) {
+        const std::string &raw = req.content();
+        fileBytes.assign(raw.begin(), raw.end());
+
+        std::string query = req.getQuery();
+        size_t fnPos = query.find("filename=");
+        if (fnPos != std::string::npos) {
+            filename = decodeUrlString(query.substr(fnPos + 9));
+            size_t amp = filename.find('&');
+            if (amp != std::string::npos) filename = filename.substr(0, amp);
+        } else if (!req["X-Filename"].empty()) {
+            filename = req["X-Filename"];
+        }
+
+        size_t slotPos = query.find("slot=");
+        if (slotPos != std::string::npos) {
+            targetSlot = std::atoi(query.substr(slotPos + 5).c_str());
+            shouldLoad = true;
+        }
+    }
+
+    if (fileBytes.empty()) {
+        res["success"] = false;
+        res["message"] = "No file data received";
+        return HttpResponse{400, res};
+    }
+
+    if (filename.rfind(".sky") == std::string::npos && filename.rfind(".bin") == std::string::npos) {
+        filename += ".sky";
+    }
+    std::string safeName = sanitizeFileName(filename);
+    std::string fullPath = "/vol/external01/wiiu/re_nsyshid/Skylanders/" + safeName;
+
+    // Pad with zeros to 1024 bytes if needed
+    if (fileBytes.size() < 1024) {
+        fileBytes.resize(1024, 0);
+    }
+
+    int result = FSUtils::WriteToFile(fullPath.c_str(), fileBytes.data(), fileBytes.size());
+    if (result <= 0 && result != (int) fileBytes.size()) {
+        res["success"] = false;
+        res["message"] = "Failed to write file to SD card";
+        return HttpResponse{500, res};
+    }
+
+    res["success"]  = true;
+    res["filename"] = safeName;
+    res["path"]     = fullPath;
+    res["size"]     = (double) fileBytes.size();
+
+    if (shouldLoad && targetSlot >= 0 && targetSlot < MAX_SKYLANDERS) {
+        bool loaded       = g_skyportal.LoadSkylander(fileBytes.data(), fullPath, (uint8_t) targetSlot);
+        res["loaded"]     = loaded;
+        res["slot"]       = (double) targetSlot;
+        res["portalSlot"] = (double) g_skyportal.GetPortalSlotFromUISlot((uint8_t) targetSlot);
+        res["figureName"] = g_skyportal.GetSkylanderFromUISlot((uint8_t) targetSlot);
+    }
+
+    res["message"] = "File uploaded successfully: " + safeName;
+    return HttpResponse{200, res};
+}
+
 static HttpResponse corsOptionsHandler(const HttpRequest &req) {
     HttpResponse res(200);
     res["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS";
-    res["Access-Control-Allow-Headers"] = "Content-Type, Accept";
+    res["Access-Control-Allow-Headers"] = "Content-Type, Accept, X-Filename, Content-Disposition";
     res["Access-Control-Max-Age"]       = "86400";
     return res;
 }
@@ -313,6 +588,28 @@ void registerSkylanderEndpoints(HttpServer &server) {
     server.when("/api/clear")
             ->options(corsOptionsHandler)
             ->posted(handleClear);
+
+    // ==========================================
+    // 💾 Download Endpoints (/api/skylanders/download & /api/download)
+    // ==========================================
+    server.when("/api/skylanders/download")
+            ->options(corsOptionsHandler)
+            ->requested(handleDownload);
+
+    server.when("/api/download")
+            ->options(corsOptionsHandler)
+            ->requested(handleDownload);
+
+    // ==========================================
+    // 📤 Upload Endpoints (/api/skylanders/upload & /api/upload)
+    // ==========================================
+    server.when("/api/skylanders/upload")
+            ->options(corsOptionsHandler)
+            ->posted(handleUpload);
+
+    server.when("/api/upload")
+            ->options(corsOptionsHandler)
+            ->posted(handleUpload);
 
     // ==========================================
     // 📦 re_nsyshid Legacy / Dashboard Endpoints

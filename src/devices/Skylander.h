@@ -212,6 +212,7 @@ public:
     bool IsSlotOccupied(uint8_t uiSlot);
     int8_t GetPortalSlotFromUISlot(uint8_t uiSlot);
     bool GetSkylanderStats(uint8_t uiSlot, uint32_t &level, uint32_t &money);
+    bool GetSkylanderRawData(uint8_t uiSlot, std::vector<uint8_t> &outData, std::string &outName, std::string &outFilePath);
 
 protected:
     std::mutex m_skyMutex;
