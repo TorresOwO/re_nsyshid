@@ -176,9 +176,9 @@ void MD5Final(uint8_t digest[16], MD5_CTX *context) {
     uint8_t bits[8];
     size_t index, padLen;
 
-    for (int i = 0, j = 0; j < 4; i++, j += 4) {
-        bits[j]   = (uint8_t)(context->count[0] >> (i * 8));
-        bits[j+4] = (uint8_t)(context->count[1] >> (i * 8));
+    for (int i = 0; i < 4; i++) {
+        bits[i]   = (uint8_t)((context->count[0] >> (i * 8)) & 0xFF);
+        bits[i+4] = (uint8_t)((context->count[1] >> (i * 8)) & 0xFF);
     }
 
     index = (size_t)((context->count[0] >> 3) & 0x3f);
@@ -187,10 +187,10 @@ void MD5Final(uint8_t digest[16], MD5_CTX *context) {
     MD5Update(context, bits, 8);
 
     for (int i = 0, j = 0; j < 16; i++, j += 4) {
-        digest[j]   = (uint8_t)(context->state[i] & 0xff);
-        digest[j+1] = (uint8_t)((context->state[i] >> 8) & 0xff);
-        digest[j+2] = (uint8_t)((context->state[i] >> 16) & 0xff);
-        digest[j+3] = (uint8_t)((context->state[i] >> 24) & 0xff);
+        digest[j]   = (uint8_t)(context->state[i] & 0xFF);
+        digest[j+1] = (uint8_t)((context->state[i] >> 8) & 0xFF);
+        digest[j+2] = (uint8_t)((context->state[i] >> 16) & 0xFF);
+        digest[j+3] = (uint8_t)((context->state[i] >> 24) & 0xFF);
     }
 }
 
