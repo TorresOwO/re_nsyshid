@@ -1658,6 +1658,24 @@ void SkylanderPortal::EnsureEncrypted(uint8_t *tagData, size_t size) {
         DEBUG_FUNCTION_LINE("Figure detected as plaintext. Auto-encrypting to canonical Mifare RFID format.");
         EncryptFigure(tagData, size);
     }
+
+    // Sanitize sector trailers to physical Mifare 1K standard (Key A = 0s, access bits, Key B = 0s)
+    for (int s = 0; s < 16; s++) {
+        uint8_t *trailer = tagData + ((s * 4 + 3) * 16);
+        memset(trailer, 0, 6);
+        if (s == 0) {
+            trailer[6] = 0x0F; trailer[7] = 0x0F; trailer[8] = 0x0F; trailer[9] = 0x69;
+        } else {
+            trailer[6] = 0x7F; trailer[7] = 0x0F; trailer[8] = 0x08; trailer[9] = 0x69;
+        }
+        memset(trailer + 10, 0, 6);
+    }
+
+    // Set standard toy flags in Block 6 if uninitialized
+    if (IsBlockZero(tagData + 0x60)) {
+        tagData[0x60] = 0x80;
+        tagData[0x66] = 0xBD;
+    }
 }
 
 void SkylanderPortal::Skylander::Save() {
