@@ -169,6 +169,7 @@ static HttpResponse handleLoad(const HttpRequest &req) {
     std::array<uint8_t, 0x10 * 0x40> fileData;
     int ret_code = FSUtils::ReadFromFile(filePath.c_str(), fileData.data(), fileData.size());
     if (ret_code == (int) fileData.size()) {
+        SkylanderPortal::EnsureEncrypted(fileData.data(), fileData.size());
         if (!g_skyportal.LoadSkylander(fileData.data(), filePath, slot)) {
             res["success"] = false;
             res["message"] = "Failed to load figure into portal";
@@ -501,6 +502,9 @@ static HttpResponse handleUpload(const HttpRequest &req) {
     if (fileBytes.size() < 1024) {
         fileBytes.resize(1024, 0);
     }
+
+    // Auto-encrypt figure if uploaded in plaintext
+    SkylanderPortal::EnsureEncrypted(fileBytes.data(), fileBytes.size());
 
     int result = FSUtils::WriteToFile(fullPath.c_str(), fileBytes.data(), fileBytes.size());
     if (result <= 0 && result != (int) fileBytes.size()) {
@@ -981,6 +985,7 @@ void registerSkylanderEndpoints(HttpServer &server) {
                 std::array<uint8_t, 0x10 * 0x40> fileData;
                 int ret_code = FSUtils::ReadFromFile(file.c_str(), fileData.data(), fileData.size());
                 if (ret_code == (int) fileData.size()) {
+                    SkylanderPortal::EnsureEncrypted(fileData.data(), fileData.size());
                     if (!g_skyportal.LoadSkylander(fileData.data(), file, slot)) {
                         res["error"] = "FAILED_TO_LOAD_SKYLANDER";
                         return HttpResponse{404, res};

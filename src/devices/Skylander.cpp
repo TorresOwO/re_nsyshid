@@ -1509,9 +1509,16 @@ bool SkylanderPortal::ParseTagMetadata(const uint8_t *tagData, uint16_t &skyId, 
         AES_ECB_decrypt(&ctx, outDecrypted);
     };
 
+    bool encrypted = IsFigureEncrypted(tagData, 1024);
     uint8_t dec0[16] = {0}, dec1[16] = {0};
-    if (!raw0Empty) decryptBlock(0x08, dec0);
-    if (!raw1Empty) decryptBlock(0x24, dec1);
+
+    if (encrypted) {
+        if (!raw0Empty) decryptBlock(0x08, dec0);
+        if (!raw1Empty) decryptBlock(0x24, dec1);
+    } else {
+        if (!raw0Empty) memcpy(dec0, tagData + 0x80, 16);
+        if (!raw1Empty) memcpy(dec1, tagData + 0x240, 16);
+    }
 
     const uint8_t *activeDec = nullptr;
     if (!raw0Empty && raw1Empty) {
