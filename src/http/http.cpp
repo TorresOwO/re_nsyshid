@@ -126,9 +126,14 @@ bool HttpRequest::parse(std::shared_ptr<IClientStream> stream) {
     if (cl > 0) {
         char *tmp = new char[cl];
         bzero(tmp, cl);
-        stream->receive(tmp, cl);
+        size_t totalReceived = 0;
+        while (totalReceived < (size_t) cl) {
+            size_t n = stream->receive(tmp + totalReceived, (size_t) cl - totalReceived);
+            if (n == 0) break;
+            totalReceived += n;
+        }
 
-        mContent = std::string(tmp, cl);
+        mContent = std::string(tmp, totalReceived);
         delete[] tmp;
 
 #ifdef TINYHTTP_JSON

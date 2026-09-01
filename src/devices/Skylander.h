@@ -215,6 +215,10 @@ public:
     bool GetSkylanderRawData(uint8_t uiSlot, std::vector<uint8_t> &outData, std::string &outName, std::string &outFilePath);
     int8_t GetUISlotForFilePath(const std::string &filePath);
     static bool ParseTagMetadata(const uint8_t *tagData, uint16_t &skyId, uint16_t &skyVar, std::string &name, std::string &game, std::string &element, std::string &type, uint32_t &level, uint32_t &money);
+    static bool IsFigureEncrypted(const uint8_t *tagData, size_t size);
+    static void EncryptFigure(uint8_t *tagData, size_t size);
+    static void DecryptFigure(const uint8_t *tagData, uint8_t *outDecrypted, size_t size);
+    static void EnsureEncrypted(uint8_t *tagData, size_t size);
 
 protected:
     std::mutex m_skyMutex;

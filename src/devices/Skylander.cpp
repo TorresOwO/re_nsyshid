@@ -1554,6 +1554,113 @@ bool SkylanderPortal::ParseTagMetadata(const uint8_t *tagData, uint16_t &skyId, 
     return true;
 }
 
+static void DeriveBlockKey(const uint8_t *tagData, uint8_t blockNum, uint8_t *outKey) {
+    uint8_t md5_input[0x56];
+    memcpy(md5_input, tagData, 0x20); // First 32 bytes (blocks 0 & 1)
+    md5_input[0x20] = blockNum;
+    memcpy(md5_input + 0x21, " Copyright (C) 2010 Activision. All Rights Reserved. ", 53);
+    md5_hash(md5_input, 0x56, outKey);
+}
+
+static bool IsBlockZero(const uint8_t *blockData) {
+    for (int i = 0; i < 16; i++) {
+        if (blockData[i] != 0) return false;
+    }
+    return true;
+}
+
+bool SkylanderPortal::IsFigureEncrypted(const uint8_t *tagData, size_t size) {
+    if (!tagData || size < 1024) return false;
+
+    bool raw0Empty = IsBlockZero(tagData + 0x80);
+    bool raw1Empty = IsBlockZero(tagData + 0x240);
+    if (raw0Empty && raw1Empty) {
+        return true; // Brand new / unwritten figure is valid
+    }
+
+    uint32_t rawExp0  = (uint32_t) tagData[0x80] | ((uint32_t) tagData[0x81] << 8) | ((uint32_t) tagData[0x82] << 16);
+    uint32_t rawGold0 = (uint32_t) tagData[0x83] | ((uint32_t) tagData[0x84] << 8);
+    uint32_t rawExp1  = (uint32_t) tagData[0x240] | ((uint32_t) tagData[0x241] << 8) | ((uint32_t) tagData[0x242] << 16);
+    uint32_t rawGold1 = (uint32_t) tagData[0x243] | ((uint32_t) tagData[0x244] << 8);
+
+    bool rawPlausible = (!raw0Empty && rawExp0 <= 250000 && rawGold0 <= 65000) ||
+                        (!raw1Empty && rawExp1 <= 250000 && rawGold1 <= 65000);
+
+    // Decrypt area 0 / 1 to check decrypted plausibility
+    auto decryptOneBlock = [&](uint8_t blockNum, uint8_t *outDec) {
+        uint8_t key[16];
+        DeriveBlockKey(tagData, blockNum, key);
+        struct AES_ctx ctx;
+        AES_init_ctx(&ctx, key);
+        memcpy(outDec, tagData + (blockNum * 16), 16);
+        AES_ECB_decrypt(&ctx, outDec);
+    };
+
+    uint8_t dec0[16] = {0}, dec1[16] = {0};
+    if (!raw0Empty) decryptOneBlock(0x08, dec0);
+    if (!raw1Empty) decryptOneBlock(0x24, dec1);
+
+    uint32_t decExp0  = (uint32_t) dec0[0] | ((uint32_t) dec0[1] << 8) | ((uint32_t) dec0[2] << 16);
+    uint32_t decGold0 = (uint32_t) dec0[3] | ((uint32_t) dec0[4] << 8);
+    uint32_t decExp1  = (uint32_t) dec1[0] | ((uint32_t) dec1[1] << 8) | ((uint32_t) dec1[2] << 16);
+    uint32_t decGold1 = (uint32_t) dec1[3] | ((uint32_t) dec1[4] << 8);
+
+    bool decPlausible = (!raw0Empty && decExp0 <= 250000 && decGold0 <= 65000) ||
+                        (!raw1Empty && decExp1 <= 250000 && decGold1 <= 65000);
+
+    if (rawPlausible && !decPlausible) {
+        return false; // It is plaintext
+    }
+    return true; // It is encrypted
+}
+
+void SkylanderPortal::EncryptFigure(uint8_t *tagData, size_t size) {
+    if (!tagData || size < 1024) return;
+
+    for (uint8_t i = 8; i < 64; i++) {
+        // Sector trailer is every 4th block (3, 7, 11, 15... 63)
+        if (((i + 1) % 4) == 0) continue;
+
+        uint8_t *blockPtr = tagData + (i * 16);
+        if (IsBlockZero(blockPtr)) continue;
+
+        uint8_t key[16];
+        DeriveBlockKey(tagData, i, key);
+
+        struct AES_ctx ctx;
+        AES_init_ctx(&ctx, key);
+        AES_ECB_encrypt(&ctx, blockPtr);
+    }
+}
+
+void SkylanderPortal::DecryptFigure(const uint8_t *tagData, uint8_t *outDecrypted, size_t size) {
+    if (!tagData || !outDecrypted || size < 1024) return;
+
+    memcpy(outDecrypted, tagData, size);
+
+    for (uint8_t i = 8; i < 64; i++) {
+        if (((i + 1) % 4) == 0) continue;
+
+        uint8_t *blockPtr = outDecrypted + (i * 16);
+        if (IsBlockZero(blockPtr)) continue;
+
+        uint8_t key[16];
+        DeriveBlockKey(tagData, i, key);
+
+        struct AES_ctx ctx;
+        AES_init_ctx(&ctx, key);
+        AES_ECB_decrypt(&ctx, blockPtr);
+    }
+}
+
+void SkylanderPortal::EnsureEncrypted(uint8_t *tagData, size_t size) {
+    if (!tagData || size < 1024) return;
+    if (!IsFigureEncrypted(tagData, size)) {
+        DEBUG_FUNCTION_LINE("Figure detected as plaintext. Auto-encrypting to canonical Mifare RFID format.");
+        EncryptFigure(tagData, size);
+    }
+}
+
 void SkylanderPortal::Skylander::Save() {
     if (filePath.empty()) {
         DEBUG_FUNCTION_LINE("No Skylander file present to save");
