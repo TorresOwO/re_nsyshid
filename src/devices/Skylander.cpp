@@ -1622,7 +1622,6 @@ void SkylanderPortal::EncryptFigure(uint8_t *tagData, size_t size) {
         if (((i + 1) % 4) == 0) continue;
 
         uint8_t *blockPtr = tagData + (i * 16);
-        if (IsBlockZero(blockPtr)) continue;
 
         uint8_t key[16];
         DeriveBlockKey(tagData, i, key);
@@ -1642,7 +1641,6 @@ void SkylanderPortal::DecryptFigure(const uint8_t *tagData, uint8_t *outDecrypte
         if (((i + 1) % 4) == 0) continue;
 
         uint8_t *blockPtr = outDecrypted + (i * 16);
-        if (IsBlockZero(blockPtr)) continue;
 
         uint8_t key[16];
         DeriveBlockKey(tagData, i, key);
