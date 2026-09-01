@@ -828,6 +828,7 @@ bool SkylanderUSBDevice::Read(uint8_t *buffer,
 
 bool SkylanderUSBDevice::Write(uint8_t *buffer,
                                uint32_t bufferLength) {
+    g_skyportal.ControlTransfer(buffer, bufferLength);
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
     return true;
 }
